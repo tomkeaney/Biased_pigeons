@@ -1,0 +1,697 @@
+---
+title: 'Animal behaviour: biased pigeons'
+output:
+  html_document:
+    code_folding: hide
+    depth: 1
+    number_sections: no
+    theme: yeti
+    toc: yes
+    toc_float: yes
+    code_download: true
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, cache = FALSE)
+```
+
+```{r}
+library(tidyverse) # tidy style coding
+library(brms) # Bayesian models
+library(loo) # for information criteria
+library(tidybayes) # Bayesian aesthetics
+library(MetBrewer) # colours
+library(kableExtra) # tables
+library(patchwork) # putting plots together
+library(DT) # for search- and saveable tables
+library(pander) # for simpler tables
+```
+
+# Load in the data
+
+We analyse data collected across three cohorts of students (2021-2023) enrolled in the third year School of Biosciences subject, _Animal Behaviour_, at The University of Melbourne. We hereafter refer to students as observers.
+
+```{r}
+
+data <- read_csv("pigeon_data.csv") %>% 
+  mutate(Student_ID = as.factor(Student_ID),
+         Year = as.factor(Year),
+         Foraging_prop = (Foraging_percentage / 100)) %>%
+  filter(Year %in% c("2021", "2022", "2023"),
+         Foraging_percentage != "NA",
+         Primer_understood != "NA") %>%
+  filter(Student_ID != "60" & Student_ID != "68" & Student_ID != "70" & Student_ID != "72") %>% # remove students that completed the task multiple times
+  #Student_ID %in% c("60", "68", "70", "72")) %>% 
+  select(-c(First_name, Surname, Peck_mean)) %>%  # remove names when ready
+  rename(Observer_ID = Student_ID)
+
+data_peck <- 
+  data %>%
+  filter(Peck_rate_2 != "NA") %>% 
+  pivot_longer(cols = Peck_rate_1:Peck_rate_2, names_to = "Trial",
+               values_to = "Peck_rate")
+  
+# Create a function to build HTML searchable tables
+
+my_data_table <- function(df){
+  datatable(
+    df, rownames=FALSE,
+    autoHideNavigation = TRUE,
+    extensions = c("Scroller",  "Buttons"),
+    options = list(
+      dom = 'Bfrtip',
+      deferRender=TRUE,
+      scrollX=TRUE, scrollY=400,
+      scrollCollapse=TRUE,
+      buttons =
+        list('pageLength', 'colvis', 'csv', list(
+          extend = 'pdf',
+          pageSize = 'A4',
+          orientation = 'landscape',
+          filename = 'full_dataset')),
+      pageLength = 78
+    )
+  )
+}
+
+
+my_data_table(data)
+
+```
+
+**Column explanations**
+
+**Observer_ID**: unique, anonymised identifier for each observer.
+
+**Year**: year that the experiment was conducted
+
+**Bias_treatment**: the primer the observer received, where 'satiated' indicates that the observers were provided information prior to a trial that suggested pigeons were fell fed, whereas 'hungry' indicated that the pigeons were in poor condition and hungry.
+
+**Expectation**: we asked the observers to indicate whether they thought the pigeons would be hungry or satiated. We included this question to test whether observers were appropriately primed by their bias treatment.
+
+**Primer_understood**: did the observer's expectation match the primer they received?
+
+**Foraging_percentage**: the percentage of pigeons that observers estimated to be foraging over a 15 second period, while observing a large flock.
+
+**Peck_rate_1**: the number of times a single chosen pigeon pecked the ground over a 15 second period.
+
+**Peck_rate_2**: the number of times a second chosen pigeon pecked the ground over a 15 second period.
+
+**Foraging_prop**: proportion of pigeons estimated to be foraging 
+
+$~$
+
+# Question 1: is estimation of foraging percentage affected by bias manipulations?
+
+$~$
+
+## The full model
+
+Here we fit a beta distributed model, with the proportion of pigeons estimated to be foraging as the response variable. We include `Bias_treatment` and `Primer_understood` as fixed effects as well as their two-way interaction.
+
+```{r}
+
+foraging_model <- brm(Foraging_prop ~ 1 + Bias_treatment * Primer_understood,
+                                data = data, family = Beta,
+                                prior = c(prior(normal(0, 1), class = Intercept),
+                                          prior(normal(0, 1.5), class = b),
+                                          prior(exponential(1), class = phi)),
+                                iter = 6000, warmup = 2000, chains = 4, cores = 4,
+                                control = list(adapt_delta = 0.8, max_treedepth = 10),
+                                seed = 1, file = "fits/foraging_model")
+
+foraging_model
+
+```
+
+This output is pretty unreadable. To make interpretation easier, we can plot predictions from the model.
+
+$~$
+
+**Calculate posterior means and difference contrasts**
+
+Here we sample 4000 draws from the posterior distribution to estimate the mean for each treatment combination in our model. With these draws we can build a distribution of the mean for each relevant combination.
+
+The first couple of rows are shown below:
+
+```{r}
+
+
+new_data <- expand.grid(Bias_treatment = c("Hungry", "Satiated"),
+                        #Year = c("2021", "2022", "2023"),
+                        Primer_understood = c("YES", "NO")) %>% 
+  as_tibble()
+
+foraging_predictions <- fitted(foraging_model, new_data, summary = F)
+
+foraging_predictions_draws <-
+  foraging_predictions %>% 
+  as_tibble() %>% 
+  rename(Hungry_YES = V1,
+         Satiated_YES = V2,
+         Hungry_NO = V3,
+         Satiated_NO = V4) %>% 
+  pivot_longer(names_to = "Primer", values_to = "Estimate", cols = 1:4) %>%
+  separate(Primer, 
+           into = c("Primer", "Primer_understood"), 
+           sep = "_") %>% 
+  mutate(Estimate = Estimate *100,
+         Primer_understood = case_when(Primer_understood == "NO" ~ "Primer understood = NO",
+                                       Primer_understood == "YES" ~ "Primer understood = YES")) 
+```
+
+## Figure S1
+
+We can plot these distributions using the `stat_halfeye` geom that comes with the `tidybayes` package.
+
+```{r}
+foraging_predictions_draws %>% 
+   ggplot(aes(x = Estimate, y = Primer, fill = Primer)) + 
+  stat_halfeye(aes(fill = Primer), .width = c(0.66, 0.95), alpha = 0.9,
+               point_interval = "median_qi", point_fill = "white",
+               shape = 21, point_size = 4, stroke = 1.5) + # width indicates the uncertainty intervals: here we have 66% and 95% intervals
+  scale_fill_manual(values = met.brewer("Hiroshige", 2)) +
+  #coord_flip() +
+  #geom_vline(xintercept = 0, linetype = 2) +
+  #scale_y_continuous(breaks = c(, 0, 1)) +
+  xlab("Estimated % pigeons foraging") +
+  facet_grid(~Primer_understood) +
+  ylab("Primer delivered") +
+  theme_bw() + 
+  theme(legend.position = "none",
+        panel.grid.minor = element_blank(),
+        text = element_text(size = 16))
+```
+
+**Figure S1**. Posterior means for estimated proportions of pigeons foraging. Observers were primed with one of two different statements that provided information on pigeon condition - they suggested that pigeons were either satiated or hungry. The plot is split into four: columns indicate the year of observation, while rows split the estimates by whether the observer expectation of pigeon hunger matched the primer they received. The coloured area is the posterior distribution and the black point is the mean estimate with associated 67% and 95% uncertainty intervals.
+
+$~$
+
+**Table S1**. Posterior estimates for the percentages of pigeons foraging, broken into the four treatment combinations.
+
+```{r}
+new_data %>% 
+cbind(fitted(foraging_model, new_data, summary = T) %>%
+        as_tibble() %>% 
+        mutate(across(1:4, ~ .x *100),
+               across(1:4, round, 2))) %>% 
+  pander()
+
+```
+
+$~$
+
+## Exploring allocation versus expectation 1 {.tabset .tabset-pills}
+
+$~$
+
+We find that **22 of the 78 observers** indicated a feeding motivation expectation opposite to that suggested by the primer they were allocated. 
+
+The model above indicates that attention paid to and/or comprehension of the primer statement has a large effect on observers' perception of pigeon foraging. This suggests that `Expectation` may be a better predictor of foraging estimation than allocated `Bias_treatment`.
+
+We explore this below by fitting two models:
+
+1. a model with allocated primer (`Bias_treatment`) as the predictor variable 
+
+2. a model with indicated hunger expectation (`Expectation`) as the predictor variable
+
+$~$
+
+### Model 1: allocated primer
+
+```{r}
+
+# First let's model the effect of bias treatment on foraging estimation 
+
+foraging_model_treatment <- brm(Foraging_prop ~ 0 + Bias_treatment,
+                                     data = data, family = Beta,
+                                     prior = c(prior(normal(0, 1.5), class = b),
+                                               prior(exponential(1), class = phi)),
+                                     iter = 6000, warmup = 2000, chains = 4, cores = 4,
+                                     control = list(adapt_delta = 0.8, max_treedepth = 10),
+                                     seed = 1, file = "fits/foraging_model_treatment")
+
+foraging_model_treatment <- add_criterion(foraging_model_treatment, criterion = "loo", file = "fits/foraging_model_treatment")
+
+```
+
+**Table S2**. Posterior estimates of the percentage of pigeon feeding rate, split by the primer observers were allocated.
+
+```{r}
+new_data_2 <- tibble(Bias_treatment = c("Hungry", "Satiated"))
+
+new_data_2 %>% 
+  cbind(fitted(foraging_model_treatment, newdata = new_data_2, summary = T) %>% 
+          as_tibble() %>% 
+          mutate(across(1:4, ~ .x *100),
+                 across(1:4, round, 2))) %>% 
+  rename("Estimated proportion foraging" = Estimate,
+         "Bias treatment" = Bias_treatment) %>% 
+  pander()
+```
+
+
+### Model 2: indicated expectation
+
+```{r}
+
+# fit the same model, except using participant expectation rather than allocated bias treatment
+
+foraging_model_expectation <- brm(Foraging_prop ~ 0 + Expectation,
+                                     data = data, family = Beta,
+                                     prior = c(prior(normal(0, 1.5), class = b),
+                                               prior(exponential(1), class = phi)),
+                                     iter = 6000, warmup = 2000, chains = 4, cores = 4,
+                                     control = list(adapt_delta = 0.8, max_treedepth = 10),
+                                     seed = 1, file = "fits/foraging_model_expectation")
+
+foraging_model_expectation <- add_criterion(foraging_model_expectation, criterion = "loo", file = "fits/foraging_model_expectation")
+
+#loo_compare(foraging_model_treatment, foraging_model_expectation)
+```
+
+**Table S3**. Posterior estimates of the percentage of pigeons foraging, split by the actual expectation of observers.
+
+```{r}
+
+new_data_3 <- tibble(Expectation = c("Hungry", "Satiated"))
+
+new_data_3 %>% 
+  cbind(fitted(foraging_model_expectation, newdata = new_data_3, summary = T) %>% 
+          as_tibble() %>% 
+          mutate(across(1:4, ~ .x *100),
+                 across(1:4, round, 2))) %>%  
+  rename("Estimated proportion foraging" = Estimate,
+         "Indicated expectation" = Expectation) %>% 
+  pander()
+```
+
+$~$
+
+## Figure 1
+
+$~$
+
+**Get posterior means and difference contrasts**
+
+```{r}
+
+# treatment model
+
+draws_treatment <-
+  as_draws_df(foraging_model_treatment) %>% 
+  mutate(Hungry = inv_logit_scaled(b_Bias_treatmentHungry) *100,
+         Satiated = inv_logit_scaled(b_Bias_treatmentSatiated)*100,
+         diff_contrast = (Hungry - Satiated)) %>% 
+  select(Hungry, Satiated, diff_contrast) %>% 
+  pivot_longer(names_to = "Treatment", values_to = "Posterior_estimate", cols = 1:3) %>% 
+  mutate(Predictor = "Allocated primer")
+
+p2 <- 
+  draws_treatment %>% 
+  filter(Treatment != "diff_contrast") %>% 
+  ggplot(aes(x = Treatment, y = Posterior_estimate)) + 
+  stat_halfeye(aes(fill = Treatment), .width = c(0.66, 0.95), alpha = 0.9,
+               point_interval = "median_qi", point_fill = "white",
+               shape = 21, point_size = 4, stroke = 1.5) +
+  scale_fill_manual(values = met.brewer("Hiroshige", 2)) +
+  coord_flip(ylim = c(25, 55)) +
+  #geom_vline(xintercept = 0, linetype = 2) +
+  #scale_y_continuous(breaks = c(, 0, 1)) +
+  xlab("Allocated primer") +
+  ylab("Estimated % pigeons foraging") +
+  theme_bw() + 
+  theme(legend.position = "none",
+        panel.grid.minor = element_blank(),
+        text = element_text(size = 14))
+
+p3 <-
+  draws_treatment %>% 
+  filter(Treatment == "diff_contrast") %>% 
+  ggplot(aes(y = Posterior_estimate)) + 
+   stat_halfeye(aes(fill = Treatment), .width = c(0.66, 0.95), alpha = 0.9,
+               point_interval = "median_qi", point_fill = "white",
+               shape = 21, point_size = 4, stroke = 1.5) +
+  scale_fill_manual(values = met.brewer("Hiroshige")[4]) +
+  coord_flip(ylim = c(-20, 20)) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  #scale_y_continuous(breaks = c(, 0, 1)) +
+  xlab(NULL) +
+  ylab("Hungry - Satiated difference\ncontrast (% points)") +
+  theme_bw() + 
+  theme(legend.position = "none",
+        panel.grid.minor = element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        text = element_text(size = 14))
+
+# expectation model
+
+draws_expectation <-
+  as_draws_df(foraging_model_expectation) %>% 
+  mutate(Hungry = inv_logit_scaled(b_ExpectationHungry) *100,
+         Satiated = inv_logit_scaled(b_ExpectationSatiated)*100,
+         diff_contrast = (Hungry - Satiated)) %>% 
+  select(Hungry, Satiated, diff_contrast) %>% 
+  pivot_longer(names_to = "Treatment", values_to = "Posterior_estimate", cols = 1:3) %>% 
+  mutate(Predictor = "Indicated expectation")
+
+p4 <-
+  draws_expectation %>% 
+  filter(Treatment != "diff_contrast") %>% 
+  ggplot(aes(x = Treatment, y = Posterior_estimate)) + 
+   stat_halfeye(aes(fill = Treatment), .width = c(0.66, 0.95), alpha = 0.9,
+               point_interval = "median_qi", point_fill = "white",
+               shape = 21, point_size = 4, stroke = 1.5) +
+  scale_fill_manual(values = met.brewer("Hiroshige", 2)) +
+  coord_flip(ylim = c(25, 55)) +
+  #geom_vline(xintercept = 0, linetype = 2) +
+  #scale_y_continuous(breaks = c(, 0, 1)) +
+  xlab("Indicated expectation") +
+  ylab("Estimated % pigeons foraging") +
+  theme_bw() + 
+  theme(legend.position = "none",
+        panel.grid.minor = element_blank(),
+        text = element_text(size = 14))
+
+p5 <-
+  draws_expectation %>% 
+  filter(Treatment == "diff_contrast") %>% 
+  ggplot(aes(y = Posterior_estimate)) + 
+    stat_halfeye(aes(fill = Treatment), .width = c(0.66, 0.95), alpha = 0.9,
+               point_interval = "median_qi", point_fill = "white",
+               shape = 21, point_size = 4, stroke = 1.5) +
+  scale_fill_manual(values = met.brewer("Hiroshige")[4]) +
+  coord_flip(ylim = c(-20, 20)) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  #scale_y_continuous(breaks = c(, 0, 1)) +
+  xlab(NULL) +
+  ylab("Hungry - Satiated difference\ncontrast (% points)") +
+  theme_bw() + 
+  theme(legend.position = "none",
+        panel.grid.minor = element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        text = element_text(size = 14))
+```
+
+Plot
+
+```{r, fig.height=8}
+(p2 + p3) / (p4 + p5) +
+   plot_annotation(tag_levels = 'a')
+```
+
+**Figure 1**. Posterior mean estimates and difference contrasts for observer estimated pigeon foraging. **a** shows the posterior means for observers that either received a primer that indicated satiated pigeons or one that indicated hungry pigeons. **b** shows the posterior difference between the mean estimates shown in **a**. **c** and **d** show the same posteriors as **a** and **b** except these are split by the indicated expectation of the observer's, rather than those allocated to them. The coloured area is the posterior distribution and the black point is the mean estimate with associated 67% and 95% uncertainty intervals.
+
+$~$
+
+# Question 2: is estimation of feeding rate affected by bias manipulations?
+
+We asked observers to count the number of pecks of the ground that a selected pigeon made over a 1 minute period. We use the number of pecks that occur as a measure of feeding rate.
+
+```{r}
+
+peck_rate_model <- brm(Peck_rate ~ 1 + Bias_treatment * Primer_understood + (1|Observer_ID),
+                                data = data_peck, family = negbinomial,
+                                prior = c( prior(normal(0, 1.5), class = Intercept),
+                                          prior(normal(0, 1.5), class = b),
+                                          prior(exponential(1), class = sd)),
+                                iter = 6000, warmup = 2000, chains = 4, cores = 4,
+                                control = list(adapt_delta = 0.9, max_treedepth = 10),
+                                seed = 1, file = "fits/peck_rate_model")
+
+peck_rate_model
+
+```
+
+Another unreadable output Let's look at the model predictions again.
+
+$~$
+
+**Calculate posterior means and difference contrasts**
+
+```{r}
+
+
+new_data <- expand.grid(Bias_treatment = c("Hungry", "Satiated"),
+                        #Year = c("2021", "2022"),
+                        Primer_understood = c("YES", "NO")) %>% 
+  as_tibble()
+
+peck_predictions <- fitted(peck_rate_model, new_data, summary = F, re_formula = NA)
+  
+peck_predictions_draws <-
+  peck_predictions %>% 
+  as_tibble() %>% 
+  rename(Hungry_YES = V1,
+         Satiated_YES = V2,
+         Hungry_NO = V3,
+         Satiated_NO = V4) %>% 
+  pivot_longer(names_to = "Primer", values_to = "Estimate", cols = 1:4) %>%
+  separate(Primer, 
+           into = c("Primer", "Primer_understood"), 
+           sep = "_") %>% 
+    mutate(Primer_understood = case_when(Primer_understood == "NO" ~ "Primer understood = NO",
+                                       Primer_understood == "YES" ~ "Primer understood = YES")) 
+
+```
+
+$~$
+
+## Figure S2
+
+```{r}
+peck_predictions_draws %>% 
+  ggplot(aes(x = Estimate, y = Primer, fill = Primer)) + 
+  stat_halfeye(aes(fill = Primer), .width = c(0.66, 0.95), alpha = 0.9,
+               point_interval = "median_qi", point_fill = "white",
+               shape = 21, point_size = 4, stroke = 1.5) +
+  scale_fill_manual(values = met.brewer("Hiroshige", 2)) +
+  coord_cartesian(xlim = c(0, 20)) +
+  #geom_vline(xintercept = 0, linetype = 2) +
+  #scale_y_continuous(breaks = c(, 0, 1)) +
+  xlab("Estimated peck rate") +
+  facet_grid(~Primer_understood) +
+  ylab("Allocated primer") +
+  theme_bw() + 
+  theme(legend.position = "none",
+        panel.grid.minor = element_blank(),
+        text = element_text(size = 16))
+```
+
+**Figure S2**. Posterior means for observer estimated pigeon feeding rate. Observers were primed with one of two different statements that provided information on pigeon condition - they suggested that pigeons were either satiated or hungry. The plot is split into four: columns indicate the year of observation, while rows split the estimates by whether the observer expectation of pigeon hunger matched the primer they received. The coloured area is the posterior distribution and the black point is the mean estimate with associated 67% and 95% uncertainty intervals.
+
+$~$
+
+**Table S4**. Posterior estimates of pigeon feeding rate, broken into the four treatment combinations. 
+
+```{r}
+new_data %>% 
+cbind(fitted(peck_rate_model, new_data, summary = T, re_formula = NA) %>%
+        as_tibble() %>% 
+        mutate(across(1:4, round, 2))) %>% 
+  pander()
+
+```
+
+
+$~$
+
+## Exploring allocation versus expectation 2.0 {.tabset .tabset-pills}
+
+$~$
+
+Once again, we find that attention paid to and/or comprehension of the primer statement has a large effect on observers' perception of pigeon foraging. 
+
+Lets again fit our two models:
+
+1. a model with allocated primer (`Bias_treatment`) as the predictor variable 
+
+2. a model with indicated hunger expectation (`Expectation`) as the predictor variable
+
+$~$
+
+### Model 1: allocated primer
+
+```{r}
+
+# First let's model the effect of bias treatment on peck rate
+
+peck_model_treatment <- brm(Peck_rate ~ 0 + Bias_treatment + (1|Observer_ID),
+                                     data = data_peck, family = negbinomial,
+                                     prior = c(prior(normal(0, 1.5), class = b),
+                                               prior(exponential(1), class = sd)),
+                                     iter = 6000, warmup = 2000, chains = 4, cores = 4,
+                                     control = list(adapt_delta = 0.9, max_treedepth = 12),
+                                     seed = 1, file = "fits/peck_model_treatment")
+
+peck_model_treatment <- add_criterion(peck_model_treatment, criterion = "loo", file = "fits/peck_model_treatment")
+  
+peck_model_treatment
+```
+
+**Table S5**. The estimated peck rate of foraging pigeons, split by the primer observers were allocated.
+
+```{r}
+new_data_2 %>% 
+  cbind(fitted(peck_model_treatment, newdata = new_data_2, summary = T, re_formula = NA) %>% 
+          as_tibble() %>% 
+          mutate(across(1:4, round, 2))) %>% 
+  rename("Estimated peck rate" = Estimate,
+         "Bias treatment" = Bias_treatment) %>% 
+  pander()
+```
+
+### Model 2: Indicated expectation
+
+```{r}
+
+# fit the same model, except using participant expectation rather than allocated bias treatment
+
+peck_model_expectation <- brm(Peck_rate ~ 0 + Expectation + (1|Observer_ID),
+                                     data = data_peck, family = negbinomial,
+                                     prior = c(prior(normal(0, 1.5), class = b),
+                                               prior(exponential(1), class = sd)),
+                                     iter = 4000, warmup = 2000, chains = 4, cores = 4,
+                                     control = list(adapt_delta = 0.95, max_treedepth = 12),
+                                     seed = 1, file = "fits/peck_model_expectation")
+
+peck_model_expectation <- add_criterion(peck_model_expectation, criterion = "loo", file = "fits/peck_model_expectation")
+
+
+peck_model_expectation
+#loo_compare(peck_model_treatment, peck_model_expectation)
+```
+
+**Table S6**. The estimated peck rate of foraging pigeons, split by the indicated expectation of the observers.
+
+```{r}
+new_data_2 %>% 
+  cbind(fitted(peck_model_expectation, newdata = new_data_3, summary = T, re_formula = NA) %>% 
+          as_tibble() %>% 
+          mutate(across(1:4, round, 2))) %>% 
+  rename("Estimated peck rate" = Estimate,
+         "Indicated expectation" = Bias_treatment) %>% 
+  pander()
+```
+
+$~$
+
+## Figure 2
+
+$~$
+
+**Get posterior means and difference contrasts**
+
+```{r}
+
+# treatment model
+
+peck_draws_treatment <-
+  as_draws_df(peck_model_treatment) %>% 
+  mutate(Hungry = exp(b_Bias_treatmentHungry),
+         Satiated = exp(b_Bias_treatmentSatiated),
+         diff_contrast = (Hungry - Satiated)) %>% 
+  select(Hungry, Satiated, diff_contrast) %>% 
+  pivot_longer(names_to = "Treatment", values_to = "Posterior_estimate", cols = 1:3) %>% 
+  mutate(Predictor = "Allocated primer")
+
+p6 <- 
+  peck_draws_treatment %>% 
+  filter(Treatment != "diff_contrast") %>% 
+  ggplot(aes(x = Treatment, y = Posterior_estimate)) + 
+   stat_halfeye(aes(fill = Treatment), .width = c(0.66, 0.95), alpha = 0.9,
+               point_interval = "median_qi", point_fill = "white",
+               shape = 21, point_size = 4, stroke = 1.5) +
+  scale_fill_manual(values = met.brewer("Hiroshige", 2)) +
+  coord_flip(ylim = c(5, 20)) +
+  #geom_vline(xintercept = 0, linetype = 2) +
+  #scale_y_continuous(breaks = c(, 0, 1)) +
+  xlab("Allocated primer") +
+  ylab("Estimated pecks per min") +
+  theme_bw() + 
+  theme(legend.position = "none",
+        panel.grid.minor = element_blank(),
+        text = element_text(size = 14))
+
+p7 <-
+  peck_draws_treatment %>% 
+  filter(Treatment == "diff_contrast") %>% 
+  ggplot(aes(y = Posterior_estimate)) + 
+   stat_halfeye(aes(fill = Treatment), .width = c(0.66, 0.95), alpha = 0.9,
+               point_interval = "median_qi", point_fill = "white",
+               shape = 21, point_size = 4, stroke = 1.5) +
+  scale_fill_manual(values = met.brewer("Hiroshige")[4]) +
+  coord_flip(ylim = c(-5, 12)) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  #scale_y_continuous(breaks = c(, 0, 1)) +
+  xlab(NULL) +
+  ylab("Hungry - Satiated difference\ncontrast (pecks per min)") +
+  theme_bw() + 
+  theme(legend.position = "none",
+        panel.grid.minor = element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        text = element_text(size = 14))
+
+# expectation model
+
+peck_draws_expectation <-
+  as_draws_df(peck_model_expectation) %>% 
+  mutate(Hungry = exp(b_ExpectationHungry),
+         Satiated = exp(b_ExpectationSatiated),
+         diff_contrast = (Hungry - Satiated)) %>% 
+  select(Hungry, Satiated, diff_contrast) %>% 
+  pivot_longer(names_to = "Treatment", values_to = "Posterior_estimate", cols = 1:3) %>% 
+  mutate(Predictor = "Allocated primer")
+
+p8 <-
+  peck_draws_expectation %>% 
+  filter(Treatment != "diff_contrast") %>% 
+  ggplot(aes(x = Treatment, y = Posterior_estimate)) + 
+    stat_halfeye(aes(fill = Treatment), .width = c(0.66, 0.95), alpha = 0.9,
+               point_interval = "median_qi", point_fill = "white",
+               shape = 21, point_size = 4, stroke = 1.5) +
+  scale_fill_manual(values = met.brewer("Hiroshige", 2)) +
+  coord_flip(ylim = c(5, 20)) +
+  #geom_vline(xintercept = 0, linetype = 2) +
+  #scale_y_continuous(breaks = c(, 0, 1)) +
+  xlab("Indicated expectation") +
+  ylab("Estimated pecks per min") +
+  theme_bw() + 
+  theme(legend.position = "none",
+        panel.grid.minor = element_blank(),
+        text = element_text(size = 14))
+
+p9 <-
+  peck_draws_expectation %>% 
+  filter(Treatment == "diff_contrast") %>% 
+  ggplot(aes(y = Posterior_estimate)) + 
+   stat_halfeye(aes(fill = Treatment), .width = c(0.66, 0.95), alpha = 0.9,
+               point_interval = "median_qi", point_fill = "white",
+               shape = 21, point_size = 4, stroke = 1.5) +
+  scale_fill_manual(values = met.brewer("Hiroshige")[4]) +
+  coord_flip(ylim = c(-5, 12)) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  #scale_y_continuous(breaks = c(, 0, 1)) +
+  xlab(NULL) +
+  ylab("Hungry - Satiated difference\ncontrast (pecks per min)") +
+  theme_bw() + 
+  theme(legend.position = "none",
+        panel.grid.minor = element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        text = element_text(size = 14))
+```
+
+Plot
+
+```{r, fig.height=8}
+(p6 + p7) / (p8 + p9) +
+   plot_annotation(tag_levels = 'a')
+```
+
+**Figure 2**. Posterior mean estimates and difference contrasts for observer estimated pigeon feeding rate. **a** shows the posterior means for observers that either received a primer that indicated satiated pigeons or one that indicated hungry pigeons. **b** shows the posterior difference between the mean estimates shown in **a**. **c** and **d** show the same posteriors as **a** and **b** except these are split by the indicated expectation of the observer's, rather than those allocated to them. The coloured area is the posterior distribution and the black point is the mean estimate with associated 67% and 95% uncertainty intervals.
