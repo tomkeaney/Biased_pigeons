@@ -1,5 +1,6 @@
 ---
-title: 'Animal behaviour: biased pigeons'
+title: 'Observational bias in behavioural ecology: a case study and teaching tool'
+author: 'Thomas Keaney, Theresa Jones and Raoul Mulder' 
 output:
   html_document:
     code_folding: hide
@@ -27,6 +28,8 @@ library(kableExtra) # tables
 library(patchwork) # putting plots together
 library(DT) # for search- and saveable tables
 library(pander) # for simpler tables
+library(png) # to load images
+library(grid) # to plot images
 ```
 
 # Load in the data
@@ -35,7 +38,7 @@ We analyse data collected across three cohorts of students (2021-2023) enrolled 
 
 ```{r}
 
-data <- read_csv("pigeon_data.csv") %>% 
+data <- read_csv("data/pigeon_data.csv") %>% 
   mutate(Student_ID = as.factor(Student_ID),
          Year = as.factor(Year),
          Foraging_prop = (Foraging_percentage / 100)) %>%
@@ -336,7 +339,7 @@ p3 <-
                shape = 21, point_size = 4, stroke = 1.5) +
   scale_fill_manual(values = met.brewer("Hiroshige")[4]) +
   coord_flip(ylim = c(-20, 20)) +
-  geom_hline(yintercept = 0, linetype = 2) +
+  geom_hline(yintercept = 0, linetype = 2, linewidth = 0.75) +
   #scale_y_continuous(breaks = c(, 0, 1)) +
   xlab(NULL) +
   ylab("Hungry - Satiated difference\ncontrast (% points)") +
@@ -385,7 +388,7 @@ p5 <-
                shape = 21, point_size = 4, stroke = 1.5) +
   scale_fill_manual(values = met.brewer("Hiroshige")[4]) +
   coord_flip(ylim = c(-20, 20)) +
-  geom_hline(yintercept = 0, linetype = 2) +
+  geom_hline(yintercept = 0, linetype = 2, linewidth = 0.75) +
   #scale_y_continuous(breaks = c(, 0, 1)) +
   xlab(NULL) +
   ylab("Hungry - Satiated difference\ncontrast (% points)") +
@@ -410,7 +413,124 @@ $~$
 
 # Question 2: is estimation of feeding rate affected by bias manipulations?
 
+$~$
+
 We asked observers to count the number of pecks of the ground that a selected pigeon made over a 1 minute period. We use the number of pecks that occur as a measure of feeding rate.
+
+We first estimated a baseline peck rate by observing 35 pigeons. To select the pigeons we observed, we split a still image of the foraging video (taken at time zero) into a 43 x 21 cell grid. From the 122 cells that contained pigeons, 40 were chosen by random number generation (see code chunk below). In the event that multiple pigeons were present in the cell, we selected the most prominent to observe. Five observations were discarded - three due to overlap of the same pigeon between cells that were selected by the random number generator, and two more as the pigeons left the field of view during the video and could no longer be tracked. 
+
+
+```{r}
+# curly brackets run all lines included within them
+
+{set.seed(1) # so that sample produces a reproducible sequence 
+  sample(1:122, 40, replace = FALSE)}
+```
+
+The selected pigeons for baseline observation are shown in the image below
+
+```{r}
+img <- readPNG("pigeon_selection.png")
+ grid.raster(img)
+```
+
+
+$~$
+
+## Estimating baseline feeding rate
+
+$~$
+
+**Load in the data**
+
+```{r}
+
+baseline_data <- read_csv("data/baseline_peck_data.csv") %>% 
+  select(1:5) %>%  # remove the comments column
+  pivot_longer(cols = 4:5, names_to = "Observation", values_to = "Peck_rate") %>% 
+  mutate(ID = as.factor(ID),
+         Observation = str_remove(Observation, "Peck_count_")) %>% 
+  rename(Pigeon_ID = ID) %>% 
+  filter(!is.na(Peck_rate))
+
+my_data_table <- function(df){
+  datatable(
+    df, rownames=FALSE,
+    autoHideNavigation = TRUE,
+    extensions = c("Scroller",  "Buttons"),
+    options = list(
+      dom = 'Bfrtip',
+      deferRender=TRUE,
+      scrollX=TRUE, scrollY=400,
+      scrollCollapse=TRUE,
+      buttons =
+        list('pageLength', 'colvis', 'csv', list(
+          extend = 'pdf',
+          pageSize = 'A4',
+          orientation = 'landscape',
+          filename = 'baseline_dataset')),
+      pageLength = 78
+    )
+  )
+}
+
+
+my_data_table(baseline_data)
+
+```
+
+- `X` and `Y` represent grid coordinates.
+
+- `Pigeon_ID` identifies a specific pigeon
+
+- `Observation` indicates whether this was the first or second scoring for a single pigeon. We scored each pigeon twice as distant pigeons were difficult to observe and to esnure that the correct pigeon was tracked throughout the minute of observation.
+
+- `Peck_rate` is the number of times the ground was pecked over a minute of observation.
+
+$~$
+
+**Fit a simple model to estimate median peck rate**
+
+```{r}
+baseline_peck_model <-
+  brm(Peck_rate ~ 1 + (1|Pigeon_ID),
+      family = poisson, data = baseline_data,
+      prior = c( prior(normal(0, 1.5), class = Intercept),
+                 prior(exponential(1), class = sd)),
+      chains = 4, cores = 4, warmup = 2000, iter = 6000,
+      file = "fits/baseline_peck_model")
+
+baseline_peck_model_zi <-
+  brm(Peck_rate ~ 1 + (1|Pigeon_ID),
+      family = zero_inflated_poisson(), data = baseline_data,
+      prior = c( prior(normal(0, 1.5), class = Intercept),
+                 prior(exponential(1), class = sd)),
+      chains = 4, cores = 4, warmup = 2000, iter = 6000,
+      file = "fits/baseline_peck_model_2")
+
+# wrangle the output
+
+baseline_peck_predictions <-
+  baseline_peck_model_zi %>% 
+  as_draws_df() %>% 
+  mutate(Baseline_estimate = exp(b_Intercept),
+         peck_rate_sd = exp(sd_Pigeon_ID__Intercept)) %>% 
+  select(Baseline_estimate, peck_rate_sd)
+
+
+fitted(baseline_peck_model_zi, summary = T, re_formula = NA) %>% 
+          as_tibble() %>%
+          distinct(Estimate, .keep_all = T) %>% 
+          mutate(across(1:4, round, 2)) %>% 
+  rename(`Baseline median peck rate / per min` = Estimate) %>% 
+  pander()
+
+```
+
+$~$
+
+## Experimental data
+
 
 ```{r}
 
@@ -450,6 +570,7 @@ peck_predictions_draws <-
          Satiated_YES = V2,
          Hungry_NO = V3,
          Satiated_NO = V4) %>% 
+  bind_cols(baseline_peck_predictions %>% select(Baseline_estimate)) %>% 
   pivot_longer(names_to = "Primer", values_to = "Estimate", cols = 1:4) %>%
   separate(Primer, 
            into = c("Primer", "Primer_understood"), 
@@ -461,12 +582,15 @@ peck_predictions_draws <-
 
 $~$
 
-## Figure S2
+### Figure S2
 
 ```{r}
 peck_predictions_draws %>% 
-  ggplot(aes(x = Estimate, y = Primer, fill = Primer)) + 
-  stat_halfeye(aes(fill = Primer), .width = c(0.66, 0.95), alpha = 0.9,
+  ggplot(aes(x = Estimate, y = Primer)) + 
+  stat_slab(aes(x = Baseline_estimate),
+               linetype = 2, linewidth = 0.8, slab_fill = "white",
+            colour = "black") +
+  stat_halfeye(aes(x = Estimate, y = Primer, fill = Primer), .width = c(0.66, 0.95), alpha = 0.8,
                point_interval = "median_qi", point_fill = "white",
                shape = 21, point_size = 4, stroke = 1.5) +
   scale_fill_manual(values = met.brewer("Hiroshige", 2)) +
@@ -482,7 +606,7 @@ peck_predictions_draws %>%
         text = element_text(size = 16))
 ```
 
-**Figure S2**. Posterior means for observer estimated pigeon feeding rate. Observers were primed with one of two different statements that provided information on pigeon condition - they suggested that pigeons were either satiated or hungry. The plot is split into four: columns indicate the year of observation, while rows split the estimates by whether the observer expectation of pigeon hunger matched the primer they received. The coloured area is the posterior distribution and the black point is the mean estimate with associated 67% and 95% uncertainty intervals.
+**Figure S2**. Posterior means for observer estimated pigeon feeding rate. Observers were primed with one of two different statements that provided information on pigeon condition - they suggested that pigeons were either satiated or hungry. The plot is split into four: columns indicate the year of observation, while rows split the estimates by whether the observer expectation of pigeon hunger matched the primer they received. The coloured area is the posterior distribution and the white point is the mean estimate with associated 67% and 95% uncertainty intervals. The dashed line indicates the baseline feeding rate for comparison, estimated by observation of 35 randomly selected pigeons.
 
 $~$
 
@@ -500,7 +624,7 @@ cbind(fitted(peck_rate_model, new_data, summary = T, re_formula = NA) %>%
 
 $~$
 
-## Exploring allocation versus expectation 2.0 {.tabset .tabset-pills}
+### Exploring allocation versus expectation 2.0 {.tabset .tabset-pills}
 
 $~$
 
@@ -514,7 +638,7 @@ Lets again fit our two models:
 
 $~$
 
-### Model 1: allocated primer
+#### Model 1: allocated primer
 
 ```{r}
 
@@ -542,10 +666,17 @@ new_data_2 %>%
           mutate(across(1:4, round, 2))) %>% 
   rename("Estimated peck rate" = Estimate,
          "Bias treatment" = Bias_treatment) %>% 
+  rbind(fitted(baseline_peck_model_zi, summary = T, re_formula = NA) %>% 
+          as_tibble() %>%
+          distinct(Estimate, .keep_all = T) %>% 
+          mutate(across(1:4, round, 2)) %>% 
+  rename("Estimated peck rate" = Estimate) %>% 
+  mutate(`Bias treatment` = "Baseline")) %>% 
   pander()
+
 ```
 
-### Model 2: Indicated expectation
+#### Model 2: Indicated expectation
 
 ```{r}
 
@@ -555,7 +686,7 @@ peck_model_expectation <- brm(Peck_rate ~ 0 + Expectation + (1|Observer_ID),
                                      data = data_peck, family = negbinomial,
                                      prior = c(prior(normal(0, 1.5), class = b),
                                                prior(exponential(1), class = sd)),
-                                     iter = 4000, warmup = 2000, chains = 4, cores = 4,
+                                     iter = 6000, warmup = 2000, chains = 4, cores = 4,
                                      control = list(adapt_delta = 0.95, max_treedepth = 12),
                                      seed = 1, file = "fits/peck_model_expectation")
 
@@ -575,12 +706,18 @@ new_data_2 %>%
           mutate(across(1:4, round, 2))) %>% 
   rename("Estimated peck rate" = Estimate,
          "Indicated expectation" = Bias_treatment) %>% 
+    rbind(fitted(baseline_peck_model_zi, summary = T, re_formula = NA) %>% 
+          as_tibble() %>%
+          distinct(Estimate, .keep_all = T) %>% 
+          mutate(across(1:4, round, 2)) %>% 
+  rename("Estimated peck rate" = Estimate) %>% 
+  mutate(`Indicated expectation` = "Baseline")) %>% 
   pander()
 ```
 
 $~$
 
-## Figure 2
+### Figure 2
 
 $~$
 
@@ -595,27 +732,32 @@ peck_draws_treatment <-
   mutate(Hungry = exp(b_Bias_treatmentHungry),
          Satiated = exp(b_Bias_treatmentSatiated),
          diff_contrast = (Hungry - Satiated)) %>% 
-  select(Hungry, Satiated, diff_contrast) %>% 
+  select(Hungry, Satiated, diff_contrast) %>%
+  bind_cols(baseline_peck_predictions %>% select(Baseline_estimate)) %>% 
   pivot_longer(names_to = "Treatment", values_to = "Posterior_estimate", cols = 1:3) %>% 
   mutate(Predictor = "Allocated primer")
 
+
 p6 <- 
-  peck_draws_treatment %>% 
-  filter(Treatment != "diff_contrast") %>% 
-  ggplot(aes(x = Treatment, y = Posterior_estimate)) + 
-   stat_halfeye(aes(fill = Treatment), .width = c(0.66, 0.95), alpha = 0.9,
-               point_interval = "median_qi", point_fill = "white",
-               shape = 21, point_size = 4, stroke = 1.5) +
-  scale_fill_manual(values = met.brewer("Hiroshige", 2)) +
-  coord_flip(ylim = c(5, 20)) +
-  #geom_vline(xintercept = 0, linetype = 2) +
-  #scale_y_continuous(breaks = c(, 0, 1)) +
-  xlab("Allocated primer") +
-  ylab("Estimated pecks per min") +
-  theme_bw() + 
-  theme(legend.position = "none",
-        panel.grid.minor = element_blank(),
-        text = element_text(size = 14))
+    peck_draws_treatment %>% 
+    filter(Treatment != "diff_contrast") %>% 
+    ggplot(aes(x = Treatment, y = Posterior_estimate)) +
+    stat_slab(aes(y = Baseline_estimate),
+              linetype = 2, linewidth = 0.8, slab_fill = "white",
+              colour = "black") +
+    stat_halfeye(aes(fill = Treatment), .width = c(0.66, 0.95), alpha = 0.9,
+                 point_interval = "median_qi", point_fill = "white",
+                 shape = 21, point_size = 4, stroke = 1.5) +
+    scale_fill_manual(values = met.brewer("Hiroshige", 2)) +
+    coord_flip(ylim = c(0, 20)) +
+    #geom_vline(xintercept = 0, linetype = 2) +
+    #scale_y_continuous(breaks = c(, 0, 1)) +
+    xlab("Allocated primer") +
+    ylab("Estimated pecks per min") +
+    theme_bw() + 
+    theme(legend.position = "none",
+          panel.grid.minor = element_blank(),
+          text = element_text(size = 14))
 
 p7 <-
   peck_draws_treatment %>% 
@@ -626,7 +768,7 @@ p7 <-
                shape = 21, point_size = 4, stroke = 1.5) +
   scale_fill_manual(values = met.brewer("Hiroshige")[4]) +
   coord_flip(ylim = c(-5, 12)) +
-  geom_hline(yintercept = 0, linetype = 2) +
+  geom_hline(yintercept = 0, linetype = 2, linewidth = 0.75) +
   #scale_y_continuous(breaks = c(, 0, 1)) +
   xlab(NULL) +
   ylab("Hungry - Satiated difference\ncontrast (pecks per min)") +
@@ -645,6 +787,7 @@ peck_draws_expectation <-
          Satiated = exp(b_ExpectationSatiated),
          diff_contrast = (Hungry - Satiated)) %>% 
   select(Hungry, Satiated, diff_contrast) %>% 
+  bind_cols(baseline_peck_predictions %>% select(Baseline_estimate)) %>% 
   pivot_longer(names_to = "Treatment", values_to = "Posterior_estimate", cols = 1:3) %>% 
   mutate(Predictor = "Allocated primer")
 
@@ -652,11 +795,14 @@ p8 <-
   peck_draws_expectation %>% 
   filter(Treatment != "diff_contrast") %>% 
   ggplot(aes(x = Treatment, y = Posterior_estimate)) + 
+  stat_slab(aes(y = Baseline_estimate),
+              linetype = 2, linewidth = 0.8, slab_fill = "white",
+              colour = "black") +
     stat_halfeye(aes(fill = Treatment), .width = c(0.66, 0.95), alpha = 0.9,
                point_interval = "median_qi", point_fill = "white",
                shape = 21, point_size = 4, stroke = 1.5) +
   scale_fill_manual(values = met.brewer("Hiroshige", 2)) +
-  coord_flip(ylim = c(5, 20)) +
+  coord_flip(ylim = c(0, 20)) +
   #geom_vline(xintercept = 0, linetype = 2) +
   #scale_y_continuous(breaks = c(, 0, 1)) +
   xlab("Indicated expectation") +
@@ -675,7 +821,7 @@ p9 <-
                shape = 21, point_size = 4, stroke = 1.5) +
   scale_fill_manual(values = met.brewer("Hiroshige")[4]) +
   coord_flip(ylim = c(-5, 12)) +
-  geom_hline(yintercept = 0, linetype = 2) +
+  geom_hline(yintercept = 0, linetype = 2, linewidth = 0.75) +
   #scale_y_continuous(breaks = c(, 0, 1)) +
   xlab(NULL) +
   ylab("Hungry - Satiated difference\ncontrast (pecks per min)") +
@@ -694,4 +840,4 @@ Plot
    plot_annotation(tag_levels = 'a')
 ```
 
-**Figure 2**. Posterior mean estimates and difference contrasts for observer estimated pigeon feeding rate. **a** shows the posterior means for observers that either received a primer that indicated satiated pigeons or one that indicated hungry pigeons. **b** shows the posterior difference between the mean estimates shown in **a**. **c** and **d** show the same posteriors as **a** and **b** except these are split by the indicated expectation of the observer's, rather than those allocated to them. The coloured area is the posterior distribution and the black point is the mean estimate with associated 67% and 95% uncertainty intervals.
+**Figure 2**. Posterior mean estimates and difference contrasts for observer estimated pigeon feeding rate. **a** shows the posterior means for observers that either received a primer that indicated satiated pigeons or one that indicated hungry pigeons. **b** shows the posterior difference between the mean estimates shown in **a**. **c** and **d** show the same posteriors as **a** and **b** except these are split by the indicated expectation of the observer's, rather than those allocated to them. The coloured area is the posterior distribution and the white point is the mean estimate with associated 67% and 95% uncertainty intervals. The dashed line indicates the baseline feeding rate for comparison, estimated by observation of 35 randomly selected pigeons.
