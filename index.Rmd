@@ -841,3 +841,11 @@ Plot
 ```
 
 **Figure 2**. Posterior mean estimates and difference contrasts for observer estimated pigeon feeding rate. **a** shows the posterior means for observers that either received a primer that indicated satiated pigeons or one that indicated hungry pigeons. **b** shows the posterior difference between the mean estimates shown in **a**. **c** and **d** show the same posteriors as **a** and **b** except these are split by the indicated expectation of the observer's, rather than those allocated to them. The coloured area is the posterior distribution and the white point is the mean estimate with associated 67% and 95% uncertainty intervals. The dashed line indicates the baseline feeding rate for comparison, estimated by observation of 35 randomly selected pigeons.
+
+
+# Session info
+
+```{r}
+sessionInfo() %>% pander
+```
+
