@@ -49,7 +49,12 @@ data <- read_csv("data/pigeon_data.csv") %>%
   filter(Student_ID != "60" & Student_ID != "68" & Student_ID != "70" & Student_ID != "72") %>% # remove students that completed the task multiple times
   #Student_ID %in% c("60", "68", "70", "72")) %>% 
   select(-c(First_name, Surname, Peck_mean)) %>%  # remove names when ready
-  rename(Observer_ID = Student_ID)
+  left_join(
+    read_csv("data/gender_data.csv") %>% 
+      mutate(Student_ID = as.factor(Student_ID))
+  ) %>% 
+  rename(Observer_ID = Student_ID) %>% 
+  select(Observer_ID, Year, Gender, everything())
 
 data_peck <- 
   data %>%
@@ -89,7 +94,9 @@ my_data_table(data)
 
 **Observer_ID**: unique, anonymised identifier for each observer.
 
-**Year**: year that the experiment was conducted
+**Year**: year that the experiment was conducted.
+
+**Gender**: upon enrollment at The University of Melbourne, students are asked to indicate their title. We identified women as observers that answered "Miss" or "Ms" and Men as those who that answered "Mr". Those with entirely missing entries were coded as "NA".  
 
 **Bias_treatment**: the primer the observer received, where 'satiated' indicates that the observers were provided information prior to a trial that suggested pigeons were fell fed, whereas 'hungry' indicated that the pigeons were in poor condition and hungry.
 
@@ -129,30 +136,33 @@ $~$
 
 ```{r}
 gg_simple_dag <- function(d) {
-  
   d %>% 
     ggplot(aes(x = x, y = y, xend = xend, yend = yend, colour = Variables)) +
     geom_dag_point() +
-    scale_colour_manual(values = c("Included" = met.brewer("Hiroshige")[4], "Not included" = "grey80")) +
+    scale_colour_manual(values = c("Included in model" = met.brewer("Hiroshige")[4], "Not included in model" = "grey80")) +
     geom_dag_text(color = met.brewer("Hiroshige")[7]) +
     geom_dag_edges() + 
-    theme_dag()
+    theme_dag()+
+    theme(legend.position = "bottom",
+          legend.title = element_blank())
 }
 
 
-observer_bias_dag <- dagify(EF ~ PE + SB + TF,
-        PE ~ BT,
-        SB ~ PE,
+observer_bias_dag <- dagify(EF ~ PEW + PEM + SB + TF,
+        PEW ~ BT,
+        PEM ~ BT,
+        SB ~ PEW + PEM,
        labels = c("TF" = "True\n Foraging", 
                   "EF" = "Estimated\n Foraging",
-                  "PE" = "Prior\n Expectation",
+                  "PEW" = "Prior\n Expectation Men",
+                  "PEM" = "Prior\n Expectation Women",
                   "BT" = "Bias\n Treatment",
                   "SB" = "Selection\n Bias")) %>% 
-  tidy_dagitty()
+  tidy_dagitty(seed = 5)
   
   
- observer_bias_dag <- left_join(observer_bias_dag$data, tibble(name = c("BT", "EF", "PE", "SB", "TF"),
-                                   Variables = c("Included", "Included", "Included", "Not included", "Not included"))) %>% 
+ observer_bias_dag <- left_join(observer_bias_dag$data, tibble(name = c("BT", "EF", "PEW", "PEM", "SB", "TF"),
+                                   Variables = c("Included in model", "Included in model", "Included in model", "Included in model", "Not included in model", "Not included in model"))) %>% 
    
  gg_simple_dag()
 
@@ -161,7 +171,7 @@ observer_bias_dag
 
 ```
 
-**Figure 1**. A direct acrylic diagram showing the flow of causation in our biological system. Our bias treatment (BT) was designed to affect the prior expectation (PE) of the observer's. Prior expectations may affect the estimated level of foraging (EF) directly, or more specifically through biased selection of particular foragers (SB). Estimated foraging is also affected by the true level of foraging (TF) carried out by the flock of pigeons in the footage. We hypothesised that _a priori_ expectations of observer's would affect their foraging estimates. The coloured path shows that this can be tested by modelling the effect of bias treatment on estimated foraging, or alternatively by directly modelling the effect of prior expectation on estimated foraging. 
+**Figure 1**. A direct acrylic diagram showing the flow of causation in our biological system. Our bias treatment (BT) was designed to affect the prior expectation (PE) of observer's, a subset of which were women (PEW), while the remaining were men (PEM). Prior expectations may affect the estimated level of foraging (EF) directly, or more specifically through biased selection of particular foragers (SB). Estimated foraging is also affected by the true level of foraging (TF) carried out by the flock of pigeons in the footage. We hypothesised that _a priori_ expectations of observer's would affect their foraging estimates. The paths connecting coloured variables show that this can be tested by modelling the effect of bias treatment on estimated foraging, or alternatively by directly modelling the effect of prior expectation on estimated foraging. 
 
 $~$
 
@@ -183,21 +193,51 @@ foraging_model_treatment <- add_criterion(foraging_model_treatment, criterion = 
 
 foraging_model_treatment
 
+foraging_model_treatment_gender <- brm(Foraging_prop ~ 0 + Gender * Bias_treatment,
+                                     data = data, family = Beta,
+                                     prior = c(prior(normal(0, 1.5), class = b),
+                                               prior(exponential(1), class = phi)),
+                                     iter = 6000, warmup = 2000, chains = 4, cores = 4,
+                                     control = list(adapt_delta = 0.8, max_treedepth = 10),
+                                     seed = 1, file = "fits/foraging_model_treatment_gender")
+
 ```
 
 **Table S1**. Posterior estimates of the percentage of pigeon feeding rate, split by the primer observers were allocated.
 
 ```{r}
-new_data_2 <- tibble(Bias_treatment = c("Hungry", "Satiated"))
+new_data <- tibble(Bias_treatment = c("Hungry", "Satiated"))
 
-new_data_2 %>% 
-  cbind(fitted(foraging_model_treatment, newdata = new_data_2, summary = T) %>% 
+new_data %>% 
+  left_join(data %>% group_by(Bias_treatment) %>% summarise(`n observers` = n())) %>% 
+  cbind(fitted(foraging_model_treatment, newdata = new_data, summary = T) %>% 
           as_tibble() %>% 
           mutate(across(1:4, ~ .x *100),
                  across(1:4, round, 2))) %>% 
   rename("Estimated proportion foraging" = Estimate,
          "Bias treatment" = Bias_treatment) %>% 
-  pander()
+  pander(split.cell = 20, split.table = Inf)
+
+```
+
+or the gender analysis version
+
+```{r}
+# add gender predictions
+
+new_data_gender <- expand_grid(Bias_treatment = c("Hungry", "Satiated"),
+                               Gender = c("Woman", "Man"))
+
+new_data_gender %>% 
+  left_join(data %>% group_by(Gender, Bias_treatment) %>% summarise(`n observers` = n()) %>% 
+          ungroup() %>% filter(!is.na(Gender))) %>% 
+  cbind(fitted(foraging_model_treatment_gender, newdata = new_data_gender, summary = T) %>% 
+          as_tibble() %>% 
+          mutate(across(1:4, ~ .x *100),
+                 across(1:4, round, 2))) %>% 
+  rename("Estimated proportion foraging" = Estimate,
+         "Bias treatment" = Bias_treatment) %>% 
+  pander(split.cell = 20, split.table = Inf)
 ```
 
 
@@ -218,23 +258,56 @@ foraging_model_expectation <- brm(Foraging_prop ~ 0 + Expectation,
 foraging_model_expectation <- add_criterion(foraging_model_expectation, criterion = "loo", file = "fits/foraging_model_expectation")
 
 foraging_model_expectation
+
+foraging_model_expectation_gender <- brm(Foraging_prop ~ 0 + Gender * Expectation,
+                                     data = data, family = Beta,
+                                     prior = c(prior(normal(0, 1.5), class = b),
+                                               prior(exponential(1), class = phi)),
+                                     iter = 6000, warmup = 2000, chains = 4, cores = 4,
+                                     control = list(adapt_delta = 0.8, max_treedepth = 10),
+                                     seed = 1, file = "fits/foraging_model_expectation_gender")
+
 ```
 
 **Table S2**. Posterior estimates of the percentage of pigeons foraging, split by the actual expectation of observers.
 
 ```{r}
 
-new_data_3 <- tibble(Expectation = c("Hungry", "Satiated"))
+new_data_2 <- tibble(Expectation = c("Hungry", "Satiated"))
 
-new_data_3 %>% 
-  cbind(fitted(foraging_model_expectation, newdata = new_data_3, summary = T) %>% 
+new_data_2 %>% 
+   left_join(data %>% group_by(Expectation) %>% summarise(`n observers` = n())) %>% 
+  cbind(fitted(foraging_model_expectation, newdata = new_data_2, summary = T) %>% 
           as_tibble() %>% 
           mutate(across(1:4, ~ .x *100),
                  across(1:4, round, 2))) %>%  
   rename("Estimated proportion foraging" = Estimate,
          "Indicated expectation" = Expectation) %>% 
-  pander()
+  pander(split.cell = 20, split.table = Inf)
+
 ```
+
+the gender analysis version
+
+```{r}
+# add gender predictions
+
+new_data_gender_2 <- expand_grid(Expectation = c("Hungry", "Satiated"),
+                               Gender = c("Woman", "Man"))
+
+new_data_gender_2 %>% 
+  left_join(data %>% group_by(Expectation, Gender) %>% summarise(`n observers` = n()) %>% 
+          ungroup() %>% filter(!is.na(Gender))) %>%
+  cbind(fitted(foraging_model_expectation_gender, 
+               newdata = new_data_gender_2, summary = T) %>% 
+          as_tibble() %>% 
+          mutate(across(1:4, ~ .x *100),
+                 across(1:4, round, 2))) %>% 
+  rename("Estimated proportion foraging" = Estimate,
+         "Indicated expectation" = Expectation) %>% 
+  pander(split.cell = 20, split.table = Inf)
+```
+
 
 $~$
 
@@ -345,6 +418,150 @@ p5 <-
         text = element_text(size = 14))
 ```
 
+Now build the plots for the models that include gender
+
+```{r}
+
+# treatment model
+
+gender_treatment_draws <-
+  fitted(foraging_model_treatment_gender, 
+         newdata = new_data_gender, summary = F) %>% 
+  as_tibble() %>% 
+  rename(Hungry_Women = V1, Hungry_Men = V2, Satiated_Women = V3, Satiated_Men = V4) %>% 
+  pivot_longer(cols = 1:4, names_to = "Group", values_to = "Posterior_estimate") %>% 
+  separate(sep = "_", col = Group, into = c("Treatment", "Gender")) %>%
+  mutate(Posterior_estimate = Posterior_estimate*100) 
+  
+calculate_all_the_diffs <-
+  fitted(foraging_model_treatment_gender, 
+         newdata = new_data_gender, summary = F) %>% 
+  as_tibble() %>% 
+  rename(Hungry_Woman = V1, Hungry_Man = V2, Satiated_Woman = V3, Satiated_Man = V4) %>% 
+  mutate(Woman_h_s_diff = Hungry_Woman - Satiated_Woman,
+         Man_h_s_diff = Hungry_Man - Satiated_Man,
+         diff_diff = Woman_h_s_diff - Man_h_s_diff) %>% 
+  select(contains("diff")) %>%
+  rename(`H-S (women)` = Woman_h_s_diff,
+         `H-S (men)` = Man_h_s_diff,
+         `Interaction` = diff_diff) %>% 
+  pivot_longer(cols = 1:3, names_to = "diff_contrast", values_to = "posterior_diff") %>% 
+  mutate(posterior_diff = posterior_diff*100)
+  
+
+gp1 <- 
+  gender_treatment_draws %>% 
+  ggplot(aes(x = Gender, y = Posterior_estimate)) + 
+    stat_slab(alpha = 0.8, shape = 21, aes(fill = Treatment)) +
+  #stat_halfeye(.width = c(0.66, 0.95), alpha = 0.9,
+   #            point_interval = "median_qi", point_fill = "white",
+   #            shape = 21, point_size = 4, stroke = 1.5,
+   #            fill = met.brewer("Hiroshige", 5)[2]) +
+  #scale_fill_manual(values = met.brewer("Hiroshige", 2)) +
+  scale_fill_manual(values = c(met.brewer("Hiroshige", 10)[4], met.brewer("Hiroshige", 10)[6])) +
+  coord_flip()+#ylim = c(25, 55)) +
+  #geom_vline(xintercept = 0, linetype = 2) +
+  #scale_y_continuous(breaks = c(, 0, 1)) +
+  labs(x = "Gender", y = "Estimated % pigeons foraging", fill = "Allocated\nprimer") +
+  theme_bw() + 
+  theme(legend.position = "bottom",
+        panel.grid.minor = element_blank(),
+        text = element_text(size = 12),
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 10))
+
+
+
+gp2 <-
+  calculate_all_the_diffs %>% 
+  ggplot(aes(x = diff_contrast, y = posterior_diff)) + 
+    #stat_slab(alpha = 0.9, shape = 21, aes(fill = Gender)) +
+  stat_halfeye(.width = c(0.66, 0.95), alpha = 0.9,
+               point_interval = "median_qi", point_fill = "white",
+               shape = 21, point_size = 3, stroke = 1.5,
+               fill = met.brewer("Hiroshige", 10)[5]) +
+  #scale_fill_manual(values = met.brewer("Hiroshige", 2)) +
+  coord_flip()+#ylim = c(25, 55)) +
+   geom_hline(yintercept = 0, linetype = 2, linewidth = 0.75) +
+  #geom_vline(xintercept = 0, linetype = 2) +
+  #scale_y_continuous(breaks = c(, 0, 1)) +
+  xlab("Difference contrast") +
+  ylab("% points") +
+  theme_bw() + 
+  theme(legend.position = "none",
+        panel.grid.minor = element_blank(),
+        text = element_text(size = 12))
+
+# expectation model
+
+gender_expectation_draws <-
+  fitted(foraging_model_expectation_gender, 
+         newdata = new_data_gender_2, summary = F) %>% 
+  as_tibble() %>% 
+  rename(Hungry_Women = V1, Hungry_Men = V2, Satiated_Women = V3, Satiated_Men = V4) %>% 
+  pivot_longer(cols = 1:4, names_to = "Group", values_to = "Posterior_estimate") %>% 
+  separate(sep = "_", col = Group, into = c("Treatment", "Gender")) %>%
+  mutate(Posterior_estimate = Posterior_estimate*100) 
+  
+calculate_all_the_diffs_2 <-
+  fitted(foraging_model_expectation_gender, 
+         newdata = new_data_gender_2, summary = F) %>% 
+  as_tibble() %>% 
+  rename(Hungry_Woman = V1, Hungry_Man = V2, Satiated_Woman = V3, Satiated_Man = V4) %>% 
+  mutate(Woman_h_s_diff = Hungry_Woman - Satiated_Woman,
+         Man_h_s_diff = Hungry_Man - Satiated_Man,
+         diff_diff = Woman_h_s_diff - Man_h_s_diff) %>% 
+  select(contains("diff")) %>%
+  rename(`H-S (women)` = Woman_h_s_diff,
+         `H-S (men)` = Man_h_s_diff,
+         `Interaction` = diff_diff) %>% 
+  pivot_longer(cols = 1:3, names_to = "diff_contrast", values_to = "posterior_diff") %>% 
+  mutate(posterior_diff = posterior_diff*100)
+
+gp3 <- 
+  gender_expectation_draws %>% 
+  ggplot(aes(x = Gender, y = Posterior_estimate)) + 
+    stat_slab(alpha = 0.9, shape = 21, aes(fill = Treatment)) +
+  #stat_halfeye(.width = c(0.66, 0.95), alpha = 0.9,
+   #            point_interval = "median_qi", point_fill = "white",
+   #            shape = 21, point_size = 4, stroke = 1.5,
+   #            fill = met.brewer("Hiroshige", 5)[2]) +
+  scale_fill_manual(values = met.brewer("Hiroshige", 2)) +
+  coord_flip()+#ylim = c(25, 55)) +
+  #geom_vline(xintercept = 0, linetype = 2) +
+  #scale_y_continuous(breaks = c(, 0, 1)) +
+  labs(x = "Gender", y = "Estimated % pigeons foraging", fill = "Indicated\nexpectation") +
+  theme_bw() + 
+    theme(legend.position = "bottom",
+        panel.grid.minor = element_blank(),
+        text = element_text(size = 12),
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 10))
+
+
+
+gp4 <-
+  calculate_all_the_diffs_2 %>% 
+  ggplot(aes(x = diff_contrast, y = posterior_diff)) + 
+    #stat_slab(alpha = 0.9, shape = 21, aes(fill = Gender)) +
+  stat_halfeye(.width = c(0.66, 0.95), alpha = 0.9,
+               point_interval = "median_qi", point_fill = "white",
+               shape = 21, point_size = 3, stroke = 1.5,
+               fill = met.brewer("Hiroshige", 10)[5]) +
+  #scale_fill_manual(values = met.brewer("Hiroshige", 2)) +
+  coord_flip()+#ylim = c(25, 55)) +
+   geom_hline(yintercept = 0, linetype = 2, linewidth = 0.75) +
+  #geom_vline(xintercept = 0, linetype = 2) +
+  #scale_y_continuous(breaks = c(, 0, 1)) +
+  xlab("Difference contrast") +
+  ylab("% points") +
+  theme_bw() + 
+  theme(legend.position = "none",
+        panel.grid.minor = element_blank(),
+        text = element_text(size = 12))
+
+```
+
 $~$
 
 # Question 2: is estimation of feeding rate affected by bias manipulations?
@@ -448,12 +665,15 @@ baseline_peck_predictions <-
          peck_rate_sd = exp(sd_Pigeon_ID__Intercept)) %>% 
   select(Baseline_estimate, peck_rate_sd)
 
-
+baseline_data %>% 
+  distinct(Pigeon_ID) %>% 
+  summarise(`n pigeons observed` = length(Pigeon_ID)) %>%
+  bind_cols(
 fitted(baseline_peck_model_zi, summary = T, re_formula = NA) %>% 
           as_tibble() %>%
           distinct(Estimate, .keep_all = T) %>% 
           mutate(across(1:4, round, 2)) %>% 
-  rename(`Baseline median peck rate / per min` = Estimate) %>% 
+  rename(`Baseline median peck rate / per min` = Estimate)) %>%
   pander()
 
 ```
@@ -484,37 +704,81 @@ $~$
 
 # First let's model the effect of bias treatment on peck rate
 
-peck_model_treatment <- brm(Peck_rate ~ 0 + Bias_treatment + (1|Observer_ID),
-                                     data = data_peck, family = negbinomial,
-                                     prior = c(prior(normal(0, 1.5), class = b),
-                                               prior(exponential(1), class = sd)),
-                                     iter = 6000, warmup = 2000, chains = 4, cores = 4,
-                                     control = list(adapt_delta = 0.9, max_treedepth = 12),
-                                     seed = 1, file = "fits/peck_model_treatment")
+peck_model_treatment <- 
+  brm(Peck_rate ~ 0 + Bias_treatment + (1|Observer_ID),
+      data = data_peck, family = negbinomial,
+      prior = c(prior(normal(0, 1.5), class = b),
+                prior(exponential(1), class = sd)),
+      iter = 6000, warmup = 2000, chains = 4, cores = 4,
+      control = list(adapt_delta = 0.9, max_treedepth = 12),
+      seed = 1, file = "fits/peck_model_treatment")
 
 peck_model_treatment <- add_criterion(peck_model_treatment, criterion = "loo", file = "fits/peck_model_treatment")
   
 peck_model_treatment
+
+peck_model_treatment_gender <- 
+  brm(Peck_rate ~ 0 + Gender * Bias_treatment + (1|Observer_ID),
+      data = data_peck, family = negbinomial,
+      prior = c(prior(normal(0, 1.5), class = b),
+                prior(exponential(1), class = sd)),
+      iter = 6000, warmup = 2000, chains = 4, cores = 4,
+      control = list(adapt_delta = 0.9, max_treedepth = 12),
+      seed = 1, file = "fits/peck_model_treatment_gender")
 ```
 
 **Table S3**. The estimated peck rate of foraging pigeons, split by the primer observers were allocated.
 
 ```{r}
-new_data_2 %>% 
-  cbind(fitted(peck_model_treatment, newdata = new_data_2, summary = T, re_formula = NA) %>% 
-          as_tibble() %>% 
-          mutate(across(1:4, round, 2))) %>% 
+new_data %>% 
+  bind_cols(fitted(peck_model_treatment, newdata = new_data, summary = T, re_formula = NA) %>% 
+              as_tibble() %>% 
+              mutate(across(1:4, round, 2))) %>% 
+  left_join(data_peck %>% group_by(Bias_treatment) %>% 
+              distinct(Observer_ID) %>% summarise(`n pigeons observed` = n())) %>% 
   rename("Estimated peck rate" = Estimate,
          "Bias treatment" = Bias_treatment) %>% 
-  rbind(fitted(baseline_peck_model_zi, summary = T, re_formula = NA) %>% 
-          as_tibble() %>%
-          distinct(Estimate, .keep_all = T) %>% 
-          mutate(across(1:4, round, 2)) %>% 
-  rename("Estimated peck rate" = Estimate) %>% 
-  mutate(`Bias treatment` = "Baseline")) %>% 
-  pander()
+  bind_rows(fitted(baseline_peck_model_zi, summary = T, re_formula = NA) %>% 
+              as_tibble() %>%
+              distinct(Estimate, .keep_all = T) %>% 
+              mutate(across(1:4, round, 2)) %>% 
+              rename("Estimated peck rate" = Estimate) %>% 
+              mutate(`Bias treatment` = "Baseline") %>% 
+              bind_cols(baseline_data %>% 
+                          distinct(Pigeon_ID) %>% 
+                          summarise(`n pigeons observed` = length(Pigeon_ID)))) %>% 
+  select(`Bias treatment`, `n pigeons observed`, everything()) %>% 
+  pander(split.cell = 20, split.table = Inf)
 
 ```
+
+add the gender specific estimates
+
+```{r}
+# add the gender table
+
+new_data_gender %>% 
+  bind_cols(fitted(peck_model_treatment_gender, 
+               newdata = new_data_gender, summary = T, re_formula = NA) %>% 
+          as_tibble() %>% 
+          mutate(across(1:4, round, 2))) %>% 
+  left_join(data_peck %>% group_by(Bias_treatment, Gender) %>% 
+               distinct(Observer_ID) %>% summarise(`n pigeons observed` = n())) %>% 
+    rename("Estimated peck rate" = Estimate,
+         "Bias treatment" = Bias_treatment) %>% 
+  bind_rows(fitted(baseline_peck_model_zi, summary = T, re_formula = NA) %>% 
+              as_tibble() %>%
+              distinct(Estimate, .keep_all = T) %>% 
+              mutate(across(1:4, round, 2)) %>% 
+              rename("Estimated peck rate" = Estimate) %>% 
+              mutate(`Bias treatment` = "Baseline", Gender = "-") %>% 
+              bind_cols(baseline_data %>% 
+                          distinct(Pigeon_ID) %>% 
+                          summarise(`n pigeons observed` = length(Pigeon_ID)))) %>% 
+  select(`Bias treatment`, `n pigeons observed`, everything()) %>% 
+  pander(split.cell = 20, split.table = Inf)
+```
+
 
 #### Model 2: Indicated expectation
 
@@ -535,25 +799,70 @@ peck_model_expectation <- add_criterion(peck_model_expectation, criterion = "loo
 
 peck_model_expectation
 #loo_compare(peck_model_treatment, peck_model_expectation)
+
+peck_model_expectation_gender <- brm(Peck_rate ~ 0 + Gender * Expectation + (1|Observer_ID),
+                                     data = data_peck, family = negbinomial,
+                                     prior = c(prior(normal(0, 1.5), class = b),
+                                               prior(exponential(1), class = sd)),
+                                     iter = 6000, warmup = 2000, chains = 4, cores = 4,
+                                     control = list(adapt_delta = 0.95, max_treedepth = 12),
+                                     seed = 1, file = "fits/peck_model_expectation_gender")
 ```
 
 **Table S4**. The estimated peck rate of foraging pigeons, split by the indicated expectation of the observers.
 
 ```{r}
+
 new_data_2 %>% 
-  cbind(fitted(peck_model_expectation, newdata = new_data_3, summary = T, re_formula = NA) %>% 
+  bind_cols(fitted(peck_model_expectation, newdata = new_data_2, summary = T, re_formula = NA) %>% 
+              as_tibble() %>% 
+              mutate(across(1:4, round, 2))) %>% 
+  left_join(data_peck %>% group_by(Expectation) %>% 
+              distinct(Observer_ID) %>% summarise(`n pigeons observed` = n())) %>% 
+  rename("Estimated peck rate" = Estimate,
+         "Indicated expectation" = Expectation) %>% 
+  bind_rows(fitted(baseline_peck_model_zi, summary = T, re_formula = NA) %>% 
+              as_tibble() %>%
+              distinct(Estimate, .keep_all = T) %>% 
+              mutate(across(1:4, round, 2)) %>% 
+              rename("Estimated peck rate" = Estimate) %>% 
+              mutate(`Indicated expectation` = "Baseline") %>% 
+              bind_cols(baseline_data %>% 
+                          distinct(Pigeon_ID) %>% 
+                          summarise(`n pigeons observed` = length(Pigeon_ID)))) %>% 
+  select(`Indicated expectation`, `n pigeons observed`, everything()) %>% 
+  pander(split.cell = 20, split.table = Inf)
+
+```
+
+add the gender specific estimates
+
+```{r}
+
+# add the gender table
+
+new_data_gender_2 %>% 
+  bind_cols(fitted(peck_model_expectation_gender, 
+               newdata = new_data_gender_2, summary = T, re_formula = NA) %>% 
           as_tibble() %>% 
           mutate(across(1:4, round, 2))) %>% 
-  rename("Estimated peck rate" = Estimate,
-         "Indicated expectation" = Bias_treatment) %>% 
-    rbind(fitted(baseline_peck_model_zi, summary = T, re_formula = NA) %>% 
-          as_tibble() %>%
-          distinct(Estimate, .keep_all = T) %>% 
-          mutate(across(1:4, round, 2)) %>% 
-  rename("Estimated peck rate" = Estimate) %>% 
-  mutate(`Indicated expectation` = "Baseline")) %>% 
-  pander()
+  left_join(data_peck %>% group_by(Expectation, Gender) %>% 
+               distinct(Observer_ID) %>% summarise(`n pigeons observed` = n())) %>% 
+    rename("Estimated peck rate" = Estimate,
+         "Indicated expectation" = Expectation) %>% 
+  bind_rows(fitted(baseline_peck_model_zi, summary = T, re_formula = NA) %>% 
+              as_tibble() %>%
+              distinct(Estimate, .keep_all = T) %>% 
+              mutate(across(1:4, round, 2)) %>% 
+              rename("Estimated peck rate" = Estimate) %>% 
+              mutate(`Indicated expectation` = "Baseline", Gender = "-") %>% 
+              bind_cols(baseline_data %>% 
+                          distinct(Pigeon_ID) %>% 
+                          summarise(`n pigeons observed` = length(Pigeon_ID)))) %>% 
+  select(`Indicated expectation`, `n pigeons observed`, everything()) %>% 
+  pander(split.cell = 20, split.table = Inf)
 ```
+
 
 $~$
 
@@ -673,6 +982,152 @@ p9 <-
         text = element_text(size = 14))
 ```
 
+Now for the gender models
+
+```{r}
+# with gender
+
+gender_treatment_draws_2 <-
+  fitted(peck_model_treatment_gender, 
+         newdata = new_data_gender, summary = F, re_formula = NA) %>% 
+  as_tibble() %>% 
+  rename(Hungry_Women = V1, Hungry_Men = V2, Satiated_Women = V3, Satiated_Men = V4) %>% 
+  bind_cols(baseline_peck_predictions %>% select(Baseline_estimate)) %>% 
+  pivot_longer(names_to = "Group", values_to = "Posterior_estimate", cols = 1:4) %>% 
+  separate(sep = "_", col = Group, into = c("Treatment", "Gender"))
+  
+calculate_all_the_diffs_3 <-
+  fitted(peck_model_treatment_gender, 
+         newdata = new_data_gender, summary = F, re_formula = NA) %>% 
+  as_tibble() %>% 
+  rename(Hungry_Women = V1, Hungry_Men = V2, Satiated_Women = V3, Satiated_Men = V4) %>% 
+  mutate(Women_h_s_diff = Hungry_Women - Satiated_Women,
+         Men_h_s_diff = Hungry_Men - Satiated_Men,
+         diff_diff = Women_h_s_diff - Men_h_s_diff) %>% 
+  select(contains("diff")) %>%
+  rename(`H-S (women)` = Women_h_s_diff,
+         `H-S (men)` = Men_h_s_diff,
+         `Interaction` = diff_diff) %>% 
+  pivot_longer(cols = 1:3, names_to = "diff_contrast", values_to = "posterior_diff")
+
+gp5 <- 
+  gender_treatment_draws_2 %>% 
+  ggplot(aes(x = Gender, y = Posterior_estimate)) + 
+    stat_slab(alpha = 0.8, shape = 21, aes(fill = Treatment)) +
+  stat_slab(aes(y = Baseline_estimate),
+              linetype = 2, linewidth = 0.8, slab_fill = "white",
+              colour = "black") +
+  #stat_halfeye(.width = c(0.66, 0.95), alpha = 0.9,
+   #            point_interval = "median_qi", point_fill = "white",
+   #            shape = 21, point_size = 4, stroke = 1.5,
+   #            fill = met.brewer("Hiroshige", 5)[2]) +
+  scale_fill_manual(values = c(met.brewer("Hiroshige", 10)[4], met.brewer("Hiroshige", 10)[6])) +
+  coord_flip()+#ylim = c(25, 55)) +
+  #geom_vline(xintercept = 0, linetype = 2) +
+  #scale_y_continuous(breaks = c(, 0, 1)) +
+  labs(x = "Gender", y = "Estimated pecks per min", fill = "Allocated\nPrimer") +
+  theme_bw() + 
+    theme(legend.position = "bottom",
+        panel.grid.minor = element_blank(),
+        text = element_text(size = 12),
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 10))
+
+
+
+gp6 <-
+  calculate_all_the_diffs_3 %>% 
+  ggplot(aes(x = diff_contrast, y = posterior_diff)) + 
+    #stat_slab(alpha = 0.9, shape = 21, aes(fill = Gender)) +
+  stat_halfeye(.width = c(0.66, 0.95), alpha = 0.9,
+               point_interval = "median_qi", point_fill = "white",
+               shape = 21, point_size = 3, stroke = 1.5,
+               fill = met.brewer("Hiroshige", 10)[5]) +
+  #scale_fill_manual(values = met.brewer("Hiroshige", 2)) +
+  coord_flip()+#ylim = c(25, 55)) +
+   geom_hline(yintercept = 0, linetype = 2, linewidth = 0.75) +
+  #geom_vline(xintercept = 0, linetype = 2) +
+  scale_y_continuous(limits = c(-10, 15)) +
+  xlab("Difference contrast") +
+  ylab("Pecks per min") +
+  theme_bw() + 
+  theme(legend.position = "none",
+        panel.grid.minor = element_blank(),
+        text = element_text(size = 12))
+
+
+# expectation model
+
+gender_expectation_draws_2 <-
+  fitted(peck_model_expectation_gender, 
+         newdata = new_data_gender_2, summary = F, re_formula = NA) %>% 
+  as_tibble() %>% 
+  rename(Hungry_Women = V1, Hungry_Men = V2, Satiated_Women = V3, Satiated_Men = V4) %>% 
+  bind_cols(baseline_peck_predictions %>% select(Baseline_estimate)) %>% 
+  pivot_longer(names_to = "Group", values_to = "Posterior_estimate", cols = 1:4) %>% 
+  separate(sep = "_", col = Group, into = c("Treatment", "Gender"))
+  
+calculate_all_the_diffs_4 <-
+  fitted(peck_model_expectation_gender, 
+         newdata = new_data_gender_2, summary = F, re_formula = NA) %>% 
+  as_tibble() %>% 
+  rename(Hungry_Women = V1, Hungry_Men = V2, Satiated_Women = V3, Satiated_Men = V4) %>% 
+  mutate(Women_h_s_diff = Hungry_Women - Satiated_Women,
+         Men_h_s_diff = Hungry_Men - Satiated_Men,
+         diff_diff = Women_h_s_diff - Men_h_s_diff) %>% 
+  select(contains("diff")) %>%
+  rename(`H-S (women)` = Women_h_s_diff,
+         `H-S (men)` = Men_h_s_diff,
+         `Interaction` = diff_diff) %>% 
+  pivot_longer(cols = 1:3, names_to = "diff_contrast", values_to = "posterior_diff")
+
+gp7 <- 
+  gender_expectation_draws_2 %>% 
+  ggplot(aes(x = Gender, y = Posterior_estimate)) + 
+    stat_slab(alpha = 0.9, shape = 21, aes(fill = Treatment)) +
+  stat_slab(aes(y = Baseline_estimate),
+              linetype = 2, linewidth = 0.8, slab_fill = "white",
+              colour = "black") +
+  #stat_halfeye(.width = c(0.66, 0.95), alpha = 0.9,
+   #            point_interval = "median_qi", point_fill = "white",
+   #            shape = 21, point_size = 4, stroke = 1.5,
+   #            fill = met.brewer("Hiroshige", 5)[2]) +
+  scale_fill_manual(values = met.brewer("Hiroshige", 2)) +
+  coord_flip()+#ylim = c(25, 55)) +
+  #geom_vline(xintercept = 0, linetype = 2) +
+  #scale_y_continuous(breaks = c(, 0, 1)) +
+  labs(x = "Gender", y = "Estimated pecks per min", fill = "Indicated\nexpectation") +
+  theme_bw() + 
+  theme(legend.position = "bottom",
+        panel.grid.minor = element_blank(),
+        text = element_text(size = 12),
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 10))
+
+
+
+gp8 <-
+  calculate_all_the_diffs_4 %>% 
+  ggplot(aes(x = diff_contrast, y = posterior_diff)) + 
+    #stat_slab(alpha = 0.9, shape = 21, aes(fill = Gender)) +
+  stat_halfeye(.width = c(0.66, 0.95), alpha = 0.9,
+               point_interval = "median_qi", point_fill = "white",
+               shape = 21, point_size = 3, stroke = 1.5,
+               fill = met.brewer("Hiroshige", 10)[5]) +
+  #scale_fill_manual(values = met.brewer("Hiroshige", 2)) +
+  coord_flip()+#ylim = c(25, 55)) +
+   geom_hline(yintercept = 0, linetype = 2, linewidth = 0.75) +
+  #geom_vline(xintercept = 0, linetype = 2) +
+  scale_y_continuous(limits = c(-10, 15)) +
+  xlab("Difference contrast") +
+  ylab("Pecks per min") +
+  theme_bw() + 
+  theme(legend.position = "none",
+        panel.grid.minor = element_blank(),
+        text = element_text(size = 12))
+```
+
+
 $~$
 
 ### Find the difference between baseline and observer estimates
@@ -716,8 +1171,17 @@ baseline_peck_predictions %>% select(Baseline_estimate) %>%  bind_cols(
 
 # Figure 2
 
-```{r, fig.height=12}
+Option 1
+
+```{r, fig.height=12, width = 10}
 (p2 + p3) / (p4 + p5) / (p6 + p7) / (p8 + p9) +
+   plot_annotation(tag_levels = 'a')
+```
+
+Option 2
+
+```{r, fig.height=12, width = 10}
+(gp1 + gp2) / (gp3 + gp4) / (gp5 + gp6) / (gp7 + gp8) +
    plot_annotation(tag_levels = 'a')
 ```
 
