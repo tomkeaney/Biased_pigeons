@@ -1,0 +1,311 @@
+---
+title: 'An undergraduate classroom experiment demonstrates the potential of subconscious bias to influence data collection in animal behaviour'
+#author: 'Thomas Keaney, Theresa Jones and Raoul Mulder' 
+subtitle: Supplementary material
+#output: latex_fragment
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: no
+    number_sections: no
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache = FALSE, warning = FALSE, message = FALSE, fig.align = "center")
+```
+
+```{r}
+library(tidyverse) # tidy style coding
+library(brms) # Bayesian models
+library(loo) # for information criteria
+library(tidybayes) # Bayesian aesthetics
+library(MetBrewer) # colours
+library(kableExtra) # tables
+library(patchwork) # putting plots together
+library(DT) # for search- and saveable tables
+library(pander) # for simpler tables
+library(png) # to load images
+library(grid) # to plot images
+library(ggdag) # to draw dags
+```
+
+
+Click **[here - hidden for blind review](XX)** to view the HTML report, which serves as online supplementary material for the associated manuscript ( _insert DOI_), in review at _Behavioural Ecology_. The report documents our empirical analysis (contains raw data and R-script) and provides all supplementary tables.
+
+In an attempt to future proof the availability of our supplementary material, we also include the supplementary methods and Tables S1-S5 in this document. Additionally, our raw data is deposited in the Dryad database **[update when applicable](XXX)**.
+
+$~$
+
+# Priming statements
+
+$~$
+
+**‘Hungry forager’ primer**: "The video was recorded just after winter, which is typically the most difficult season of the year for pigeons in terms of feeding and survival. About 30% of pigeons do not survive winter; many that do survive experience a significant loss of body mass and must make the most of every feeding opportunity that arises in order to regain condition."
+
+**‘Satiated forager’ primer**: "The video was recorded late in the afternoon near Jewell railway station, a favourite spot for commuters to feed the pigeons. Moreland Council estimates that locals dump 5-10kg of bread and seed here, creating a superabundant daily food source. By the end of the day, many of the birds are completely satiated and have little or no motivation to feed."
+
+$~$
+
+# Supplementary Tables
+
+```{r}
+
+data <- 
+  read_csv("data/pigeon_bias_data.csv") %>% 
+  mutate(Student_ID = as.factor(Student_ID),
+         Year = as.factor(Year),
+         Foraging_prop = (Foraging_percentage / 100)) %>%
+  filter(First_response == "YES",
+         Foraging_percentage != "NA",
+         Primer_understood != "NA") %>% 
+  select(Student_ID, Year, First_response, everything())
+
+data_peck <- 
+  data %>%
+  filter(Peck_rate_2 != "NA") %>% 
+  pivot_longer(cols = Peck_rate_1:Peck_rate_2, names_to = "Trial",
+               values_to = "Peck_rate")
+  
+```
+
+```{r}
+
+# First let's model the effect of bias treatment on foraging estimation 
+
+foraging_model_treatment <- brm(Foraging_prop ~ 0 + Bias_treatment + Year,
+                                data = data, family = Beta,
+                                prior = c(prior(normal(0, 1.5), class = b),
+                                          prior(exponential(1), class = phi)),
+                                iter = 6000, warmup = 2000, chains = 4, cores = 4,
+                                control = list(adapt_delta = 0.8, max_treedepth = 10),
+                                seed = 1, file = "fits/foraging_model_treatment")
+
+
+```
+
+**Table S1**. Posterior estimates of the percentage of pigeons foraging, split by the primer that students were allocated.
+
+```{r}
+new_data <- expand_grid(Bias_treatment = c("Hungry", "Satiated"),
+                        Year = 2023)
+
+new_data %>% 
+  left_join(data %>% group_by(Bias_treatment) %>% summarise(`n students` = n())) %>% 
+  cbind(fitted(foraging_model_treatment, newdata = new_data, summary = T) %>% 
+          as_tibble() %>% 
+          mutate(across(1:4, ~ .x *100),
+                 across(1:4, round, 2))) %>% 
+  rename("Estimated % foraging" = Estimate,
+         "Bias treatment" = Bias_treatment) %>% 
+  select(-Year) %>% 
+  pander(split.cell = 20, split.table = Inf)
+
+```
+
+```{r}
+
+# fit the same model, except using participant expectation rather than allocated bias treatment
+
+foraging_model_expectation <- brm(Foraging_prop ~ 0 + Expectation + Year,
+                                     data = data, family = Beta,
+                                     prior = c(prior(normal(0, 1.5), class = b),
+                                               prior(exponential(1), class = phi)),
+                                     iter = 6000, warmup = 2000, chains = 4, cores = 4,
+                                     control = list(adapt_delta = 0.8, max_treedepth = 10),
+                                     seed = 1, file = "fits/foraging_model_expectation")
+
+
+```
+
+$~$
+
+$~$
+
+**Table S2**. Posterior estimates of the percentage of pigeons foraging, split by the actual expectation of the students.
+
+```{r}
+
+new_data_2 <- expand_grid(Expectation = c("Hungry", "Satiated"),
+                          Year = 2023)
+
+new_data_2 %>% 
+  left_join(data %>% group_by(Expectation) %>% summarise(`n students` = n())) %>% 
+  cbind(fitted(foraging_model_expectation, newdata = new_data_2, summary = T) %>% 
+          as_tibble() %>% 
+          mutate(across(1:4, ~ .x *100),
+                 across(1:4, round, 2))) %>%  
+  rename("Estimated % foraging" = Estimate,
+         "Indicated expectation" = Expectation) %>%
+  select(-Year) %>% 
+  pander(split.cell = 20, split.table = Inf)
+
+```
+
+```{r}
+
+baseline_data <- read_csv("data/baseline_peck_data.csv") %>% 
+  select(1:5) %>%  # remove the comments column
+  pivot_longer(cols = 4:5, names_to = "Observation", values_to = "Peck_rate") %>% 
+  mutate(ID = as.factor(ID),
+         Observation = str_remove(Observation, "Peck_count_")) %>% 
+  rename(Pigeon_ID = ID) %>% 
+  filter(!is.na(Peck_rate))
+
+```
+
+```{r}
+
+baseline_peck_model_zi <-
+  brm(Peck_rate ~ 1 + (1|Pigeon_ID),
+      family = zero_inflated_negbinomial(), data = baseline_data,
+      prior = c( prior(normal(0, 1.5), class = Intercept),
+                 prior(exponential(1), class = sd),
+                 prior(exponential(1), class = shape),
+                 prior(exponential(1), class = zi)),
+      chains = 4, cores = 4, warmup = 2000, iter = 6000,
+      file = "fits/baseline_peck_model")
+
+# wrangle the output
+
+baseline_peck_predictions <-
+  baseline_peck_model_zi %>% 
+  as_draws_df() %>% 
+  mutate(Baseline_estimate = exp(b_Intercept),
+         peck_rate_sd = exp(sd_Pigeon_ID__Intercept)) %>% 
+  select(Baseline_estimate, peck_rate_sd)
+
+```
+
+```{r}
+
+peck_model_treatment <- 
+  brm(Peck_rate ~ 0 + Bias_treatment + Year + (1|Student_ID),
+      data = data_peck, family = negbinomial,
+      prior = c(prior(normal(0, 1.5), class = b),
+                prior(exponential(1), class = sd)),
+      iter = 6000, warmup = 2000, chains = 4, cores = 4,
+      control = list(adapt_delta = 0.95, max_treedepth = 12),
+      seed = 1, file = "fits/peck_model_treatment")
+
+```
+
+$~$
+
+$~$
+
+**Table S3**. The estimated peck rate of foraging pigeons, split by the primer students were allocated. Each student observed two pigeons.
+
+```{r}
+new_data %>% 
+  bind_cols(fitted(peck_model_treatment, newdata = new_data, summary = T, re_formula = NA) %>% 
+              as_tibble() %>% 
+              mutate(across(1:4, round, 2))) %>% 
+  left_join(data_peck %>% group_by(Bias_treatment) %>% 
+              summarise(`n pigeons observed` = n())) %>% 
+  rename("Estimated peck rate" = Estimate,
+         "Bias treatment" = Bias_treatment) %>% 
+  bind_rows(fitted(baseline_peck_model_zi, summary = T, re_formula = NA) %>% 
+              as_tibble() %>%
+              distinct(Estimate, .keep_all = T) %>% 
+              mutate(across(1:4, round, 2)) %>% 
+              rename("Estimated peck rate" = Estimate) %>% 
+              mutate(`Bias treatment` = "Baseline") %>% 
+              bind_cols(baseline_data %>% 
+                          distinct(Pigeon_ID) %>% 
+                          summarise(`n pigeons observed` = length(Pigeon_ID)))) %>% 
+  select(`Bias treatment`, `n pigeons observed`, `Estimated peck rate`, Est.Error, Q2.5, Q97.5) %>% 
+  pander(split.cell = 20, split.table = Inf)
+
+```
+
+```{r}
+
+# fit the same model, except using participant expectation rather than allocated bias treatment
+
+peck_model_expectation <- brm(Peck_rate ~ 0 + Expectation + Year + (1|Student_ID),
+                                     data = data_peck, family = negbinomial,
+                                     prior = c(prior(normal(0, 1.5), class = b),
+                                               prior(exponential(1), class = sd)),
+                                     iter = 6000, warmup = 2000, chains = 4, cores = 4,
+                                     control = list(adapt_delta = 0.95, max_treedepth = 12),
+                                     seed = 1, file = "fits/peck_model_expectation")
+
+```
+
+$~$
+
+$~$
+
+**Table S4**. The estimated peck rate of foraging pigeons, split by the indicated expectation of the students. Each student observed two pigeons. 
+
+```{r}
+
+new_data_2 %>% 
+  bind_cols(fitted(peck_model_expectation, newdata = new_data_2, summary = T, re_formula = NA) %>% 
+              as_tibble() %>% 
+              mutate(across(1:4, round, 2))) %>% 
+  left_join(data_peck %>% group_by(Expectation) %>% 
+               summarise(`n pigeons observed` = n())) %>% 
+  rename("Estimated peck rate" = Estimate,
+         "Indicated expectation" = Expectation) %>% 
+  bind_rows(fitted(baseline_peck_model_zi, summary = T, re_formula = NA) %>% 
+              as_tibble() %>%
+              distinct(Estimate, .keep_all = T) %>% 
+              mutate(across(1:4, round, 2)) %>% 
+              rename("Estimated peck rate" = Estimate) %>% 
+              mutate(`Indicated expectation` = "Baseline") %>% 
+              bind_cols(baseline_data %>% 
+                          distinct(Pigeon_ID) %>% 
+                          summarise(`n pigeons observed` = length(Pigeon_ID)))) %>% 
+  select(`Indicated expectation`, `n pigeons observed`, `Estimated peck rate`, Est.Error, Q2.5, Q97.5) %>% 
+  pander(split.cell = 20, split.table = Inf)
+
+```
+
+$~$
+
+$~$
+
+**Table S5**. The degree to which each group of students overestimated feeding rate (number of ground pecks per minute)
+
+```{r}
+baseline_peck_predictions %>% select(Baseline_estimate) %>%  bind_cols(
+  
+  as_draws_df(peck_model_treatment) %>% 
+    mutate(Hungry = exp(b_Bias_treatmentHungry + b_Year2023),
+           Satiated = exp(b_Bias_treatmentSatiated + b_Year2023)) %>% 
+    select(Hungry, Satiated)) %>% 
+  mutate(`Bias treatment Satiated / Baseline` = Satiated / Baseline_estimate,
+         `Bias treatment Hungry / Baseline` = Hungry / Baseline_estimate) %>% 
+  select(contains("Bias")) %>% 
+  pivot_longer(cols = everything(), values_to = "estimate", names_to = "Stat") %>% 
+  group_by(Stat) %>% 
+  summarise_draws("median", "sd", ~quantile(.x, probs = c(0.025, 0.975), na.rm = TRUE), .cores = 4) %>% 
+  select(-variable) %>% 
+  
+  bind_rows(
+    
+    baseline_peck_predictions %>% select(Baseline_estimate) %>%  bind_cols(
+      
+      as_draws_df(peck_model_expectation) %>% 
+        mutate(Hungry = exp(b_ExpectationHungry + b_Year2023),
+               Satiated = exp(b_ExpectationSatiated + b_Year2023)) %>% 
+        select(Hungry, Satiated)) %>% 
+      mutate(`Expectation Satiated / Baseline` = Satiated / Baseline_estimate,
+             `Expectation Hungry / Baseline` = Hungry / Baseline_estimate) %>% 
+      select(contains("Expectation")) %>% 
+      pivot_longer(cols = everything(), values_to = "estimate", names_to = "Stat") %>% 
+      group_by(Stat) %>% 
+      summarise_draws("median", "sd", ~quantile(.x, probs = c(0.025, 0.975), na.rm = TRUE), .cores = 4) %>% 
+      select(-variable)
+  ) %>%
+  rename(Median = median,
+         Q2.5 = `2.5%`,
+         Q97.5 = `97.5%`,
+         Est.Error = sd) %>%
+  ungroup() %>% 
+  mutate(across(2:5, round, 2)) %>% 
+  pander(split.cell = 20, split.table = Inf)
+```

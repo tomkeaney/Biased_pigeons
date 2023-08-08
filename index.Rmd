@@ -22,7 +22,7 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, cache = FAL
 
 $~$
 
-The `pigeon_video.mp4` file and priming emails sent to students are available in the `Teaching_resources` folder found on the github page associated with this manuscript. They can be accessed here: https://github.com/tomkeaney/Biased_pigeons.
+The `pigeon_video.mp4` file and priming emails sent to students are available in the `Teaching_resources` folder found on the [github repository](https://github.com/tomkeaney/Biased_pigeons) associated with this manuscript.
 
 **‘Hungry forager’ primer**: "The video was recorded just after winter, which is typically the most difficult season of the year for pigeons in terms of feeding and survival. About 30% of pigeons do not survive winter; many that do survive experience a significant loss of body mass and must make the most of every feeding opportunity that arises in order to regain condition."
 
@@ -101,21 +101,21 @@ my_data_table(data)
 
 **Year**: year that the experiment was conducted.
 
-**Gender**: upon enrollment at The University of Melbourne, students are asked to indicate their title. We identified women as observers that answered "Miss" or "Ms" and Men as those who that answered "Mr". Those with entirely missing entries were coded as "NA".
+**Gender**: upon enrollment at The University of Melbourne, students are asked to indicate their title. We identified women as students that answered "Miss" or "Ms" and Men as those who that answered "Mr". Those with entirely missing entries were coded as "NA".
 
 **First_response**: indicates whether this was the initial response provided by the student.
 
-**Bias_treatment**: the primer the observer received, where 'satiated' indicates that the observers were provided information prior to a trial that suggested pigeons were fell fed, whereas 'hungry' indicated that the pigeons were in poor condition and hungry.
+**Bias_treatment**: the primer the observer received, where 'satiated' indicates that the students were provided information prior to a trial that suggested pigeons were fell fed, whereas 'hungry' indicated that the pigeons were in poor condition and hungry.
 
-**Expectation**: we asked the observers to indicate whether they thought the pigeons would be hungry or satiated. We included this question to test whether observers were appropriately primed by their bias treatment.
+**Expectation**: we asked the students to indicate whether they thought the pigeons would be hungry or satiated. We included this question to test whether students were appropriately primed by their bias treatment.
 
 **Primer_understood**: did the observer's expectation match the primer they received?
 
-**Foraging_percentage**: the percentage of pigeons that observers estimated to be foraging over a 15 second period, while observing a large flock.
+**Foraging_percentage**: the percentage of pigeons that students estimated to be foraging over a 60 second period, while observing a large flock.
 
-**Peck_rate_1**: the number of times a single chosen pigeon pecked the ground over a 15 second period.
+**Peck_rate_1**: the number of times a single chosen pigeon pecked the ground over a 60 second period.
 
-**Peck_rate_2**: the number of times a second chosen pigeon pecked the ground over a 15 second period.
+**Peck_rate_2**: the number of times a second chosen pigeon pecked the ground over a 60 second period.
 
 **Foraging_prop**: proportion of pigeons estimated to be foraging. 
 
@@ -129,7 +129,7 @@ $~$
 
 $~$
 
-We find that **24 of the 81 observers** indicated a feeding motivation expectation opposite to that implied by the primer they were allocated. 
+We find that **24 of the 81 students** indicated a feeding motivation expectation opposite to that implied by the primer they were allocated. 
 
 This suggests that `Expectation` may be a better predictor of foraging estimation than allocated `Bias_treatment`.
 
@@ -159,7 +159,7 @@ foraging_model_treatment
 
 ```
 
-**Table S1**. Posterior estimates of the percentage of pigeons foraging, split by the primer studnets were allocated.
+**Table S1**. Posterior estimates of the percentage of pigeons foraging, split by the primer that students were allocated.
 
 ```{r}
 new_data <- expand_grid(Bias_treatment = c("Hungry", "Satiated"),
@@ -197,7 +197,7 @@ foraging_model_expectation
 
 ```
 
-**Table S2**. Posterior estimates of the percentage of pigeons foraging, split by the actual expectation of observers.
+**Table S2**. Posterior estimates of the percentage of pigeons foraging, split by the actual expectation of the students.
 
 ```{r}
 
@@ -205,7 +205,7 @@ new_data_2 <- expand_grid(Expectation = c("Hungry", "Satiated"),
                           Year = 2023)
 
 new_data_2 %>% 
-  left_join(data %>% group_by(Expectation) %>% summarise(`n observers` = n())) %>% 
+  left_join(data %>% group_by(Expectation) %>% summarise(`n students` = n())) %>% 
   cbind(fitted(foraging_model_expectation, newdata = new_data_2, summary = T) %>% 
           as_tibble() %>% 
           mutate(across(1:4, ~ .x *100),
@@ -332,7 +332,7 @@ $~$
 
 $~$
 
-We asked observers to count the number of pecks of the ground that a selected pigeon made over a 1 minute period. We use the number of pecks that occur as a measure of feeding rate.
+We asked students to count the number of pecks of the ground that a selected pigeon made over a 1 minute period. We use the number of pecks that occur as a measure of feeding rate.
 
 We first estimated a baseline peck rate by observing 35 pigeons. To select the pigeons we observed, we split a still image of the foraging video (taken at time zero) into a 43 x 21 cell grid. From the 122 cells that contained pigeons, 40 were chosen by random number generation (see code chunk below). In the event that multiple pigeons were present in the cell, we selected the most prominent to observe. Five observations were discarded - three due to overlap of the same pigeon between cells that were selected by the random number generator, and two more as the pigeons left the field of view during the video and could no longer be tracked. 
 
@@ -396,13 +396,13 @@ my_data_table(baseline_data)
 
 ```
 
-- `X` and `Y` represent grid coordinates.
+**X** and **Y** represent grid coordinates.
 
-- `Pigeon_ID` identifies a specific pigeon
+- **Pigeon_ID** identifies a specific pigeon
 
-- `Observation` indicates whether this was the first or second scoring for a single pigeon. We scored each pigeon twice as distant pigeons were difficult to observe and to ensure that the correct pigeon was tracked throughout the minute of observation.
+- **Observation** indicates whether this was the first or second scoring for a single pigeon. We scored each pigeon twice as distant pigeons were difficult to observe and to ensure that the correct pigeon was tracked throughout the minute of observation.
 
-- `Peck_rate` is the number of times the ground was pecked over a minute of observation.
+- **Peck_rate** is the number of times the ground was pecked over a minute of observation.
 
 $~$
 
@@ -452,7 +452,7 @@ $~$
 
 $~$
 
-Once again, we hypothesised that attention paid to and/or comprehension of the primer statement had a large effect on observers' perception of pigeon foraging. 
+Once again, we hypothesised that attention paid to and/or comprehension of the primer statement had a large effect on student perception of pigeon foraging. 
 
 Lets again fit the two models:
 
@@ -479,7 +479,7 @@ peck_model_treatment
 
 ```
 
-**Table S3**. The estimated peck rate of foraging pigeons, split by the primer observers were allocated.
+**Table S3**. The estimated peck rate of foraging pigeons, split by the primer students were allocated. Each student observed two pigeons.
 
 ```{r}
 new_data %>% 
@@ -487,7 +487,7 @@ new_data %>%
               as_tibble() %>% 
               mutate(across(1:4, round, 2))) %>% 
   left_join(data_peck %>% group_by(Bias_treatment) %>% 
-              distinct(Student_ID) %>% summarise(`n pigeons observed` = n())) %>% 
+              summarise(`n pigeons observed` = n())) %>% 
   rename("Estimated peck rate" = Estimate,
          "Bias treatment" = Bias_treatment) %>% 
   bind_rows(fitted(baseline_peck_model_zi, summary = T, re_formula = NA) %>% 
@@ -523,7 +523,7 @@ peck_model_expectation
 
 ```
 
-**Table S4**. The estimated peck rate of foraging pigeons, split by the indicated expectation of the observers.
+**Table S4**. The estimated peck rate of foraging pigeons, split by the indicated expectation of the students. Each student observed two pigeons. 
 
 ```{r}
 
@@ -532,7 +532,7 @@ new_data_2 %>%
               as_tibble() %>% 
               mutate(across(1:4, round, 2))) %>% 
   left_join(data_peck %>% group_by(Expectation) %>% 
-              distinct(Student_ID) %>% summarise(`n pigeons observed` = n())) %>% 
+               summarise(`n pigeons observed` = n())) %>% 
   rename("Estimated peck rate" = Estimate,
          "Indicated expectation" = Expectation) %>% 
   bind_rows(fitted(baseline_peck_model_zi, summary = T, re_formula = NA) %>% 
@@ -671,7 +671,7 @@ $~$
 
 ### Find the difference between baseline and observer estimates
 
-**Table S5**. The degree to which each group of observer's overestimates feeding rate (number of ground pecks per minute)
+**Table S5**. The degree to which each group of students overestimated feeding rate (number of ground pecks per minute)
 
 ```{r}
 baseline_peck_predictions %>% select(Baseline_estimate) %>%  bind_cols(
@@ -703,8 +703,14 @@ baseline_peck_predictions %>% select(Baseline_estimate) %>%  bind_cols(
       group_by(Stat) %>% 
       summarise_draws("median", "sd", ~quantile(.x, probs = c(0.025, 0.975), na.rm = TRUE), .cores = 4) %>% 
       select(-variable)
-  ) %>% 
-  pander()
+  ) %>%
+  rename(Median = median,
+         Q2.5 = `2.5%`,
+         Q97.5 = `97.5%`,
+         Est.Error = sd) %>%
+  ungroup() %>% 
+  mutate(across(2:5, round, 2)) %>% 
+  pander(split.cell = 20, split.table = Inf)
 ```
 
 # Figure 1
