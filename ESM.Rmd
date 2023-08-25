@@ -32,7 +32,7 @@ library(ggdag) # to draw dags
 ```
 
 
-Click **[here - hidden for blind review](XX)** to view the HTML report, which serves as online supplementary material for the associated manuscript ( _insert DOI_), in review at _Behavioural Ecology_. The report documents our empirical analysis (contains raw data and R-script) and provides all supplementary tables.
+Click **[here - hidden for blind review](XX)** to view the HTML report, which serves as online supplementary material for the associated manuscript ( _insert DOI_), in review at _Behavioural Ecology_. The report documents our empirical analysis (contains raw data and R-script) and provides all supplementary Figures and Tables.
 
 In an attempt to future proof the availability of our supplementary material, we also include the supplementary methods and Tables S1-S5 in this document. Additionally, our raw data is deposited in the Dryad database **[update when applicable](XXX)**.
 
@@ -40,11 +40,22 @@ $~$
 
 # Priming statements
 
-$~$
 
 **‘Hungry forager’ primer**: "The video was recorded just after winter, which is typically the most difficult season of the year for pigeons in terms of feeding and survival. About 30% of pigeons do not survive winter; many that do survive experience a significant loss of body mass and must make the most of every feeding opportunity that arises in order to regain condition."
 
 **‘Satiated forager’ primer**: "The video was recorded late in the afternoon near Jewell railway station, a favourite spot for commuters to feed the pigeons. Moreland Council estimates that locals dump 5-10kg of bread and seed here, creating a superabundant daily food source. By the end of the day, many of the birds are completely satiated and have little or no motivation to feed."
+
+$~$
+
+# Estimating baseline feeding rate
+
+We estimated a baseline peck rate by observing 35 pigeons. To select the pigeons we observed, we split a still image of the foraging video (taken at time zero) into a 43 x 21 cell grid. From the 122 cells that contained pigeons, 40 were chosen by random number generation. In the event that multiple pigeons were present in the cell, we selected the most prominent to observe. Five observations were discarded - three due to overlap of the same pigeon between cells that were selected by the random number generator, and two more as the pigeons left the field of view during the video and could no longer be tracked.
+
+```{r}
+img <- readPNG("pigeon_selection.png")
+ grid.raster(img)
+```
+**Figure S1**. the pigeons selected for baseline estimation of feeding rate.
 
 $~$
 
@@ -118,8 +129,6 @@ foraging_model_expectation <- brm(Foraging_prop ~ 0 + Expectation + Year,
 
 
 ```
-
-$~$
 
 $~$
 

@@ -35,7 +35,6 @@ $~$
 ```{r}
 library(tidyverse) # tidy style coding
 library(brms) # Bayesian models
-library(loo) # for information criteria
 library(tidybayes) # Bayesian aesthetics
 library(MetBrewer) # colours
 library(kableExtra) # tables
@@ -44,7 +43,6 @@ library(DT) # for search- and saveable tables
 library(pander) # for simpler tables
 library(png) # to load images
 library(grid) # to plot images
-library(ggdag) # to draw dags
 ```
 
 We collated 89 responses across three years, from 82 students. Four students from the 2021 cohort provided multiple responses; we chose to only include their initial response as we cannot be sure that later responses were made while the students were still unaware of the experiment. One additional response did not provide the indicated expectation of the student, so it was removed from the dataset. The cleaned dataset therefore contains 81 responses from 81 students.
@@ -351,6 +349,7 @@ img <- readPNG("pigeon_selection.png")
  grid.raster(img)
 ```
 
+**Figure S1**. the pigeons selected for baseline estimation of feeding rate.
 
 $~$
 
