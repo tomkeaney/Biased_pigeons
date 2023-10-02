@@ -1,5 +1,5 @@
 ---
-title: 'An undergraduate classroom experiment demonstrates the potential of subconscious bias to influence data collection in animal behaviour'
+title: 'An undergraduate classroom experiment demonstrates the potential of unconscious bias to influence data collection in animal behaviour'
 author: 'Thomas Keaney, Theresa Jones and Raoul Mulder' 
 output:
   html_document:
@@ -127,7 +127,7 @@ $~$
 
 $~$
 
-We find that **24 of the 81 students** indicated a feeding motivation expectation opposite to that implied by the primer they were allocated. 
+We find that **24 of the 82 students** indicated a feeding motivation expectation opposite to that implied by the primer they were allocated. 
 
 This suggests that `Expectation` may be a better predictor of foraging estimation than allocated `Bias_treatment`.
 

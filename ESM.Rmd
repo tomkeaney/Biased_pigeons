@@ -1,5 +1,5 @@
 ---
-title: 'An undergraduate classroom experiment demonstrates the potential of subconscious bias to influence data collection in animal behaviour'
+title: 'An undergraduate classroom experiment demonstrates the potential of unconscious bias to influence data collection in animal behaviour'
 #author: 'Thomas Keaney, Theresa Jones and Raoul Mulder' 
 subtitle: Supplementary material
 #output: latex_fragment
