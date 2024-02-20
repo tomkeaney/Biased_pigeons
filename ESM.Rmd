@@ -1,9 +1,11 @@
 ---
-title: 'An undergraduate classroom experiment demonstrates the potential of unconscious bias to influence data collection in animal behaviour'
-#author: 'Thomas Keaney, Theresa Jones and Raoul Mulder' 
+title: An undergraduate classroom experiment illustrates an effect of observer bias
+  on data collection in animal behaviour
+author: "Thomas Keaney, Theresa Jones and Raoul Mulder"
 subtitle: Supplementary material
-#output: latex_fragment
 output:
+  word_document:
+    toc: no
   pdf_document:
     latex_engine: xelatex
     toc: no
@@ -19,31 +21,92 @@ knitr::opts_chunk$set(echo = FALSE, cache = FALSE, warning = FALSE, message = FA
 ```{r}
 library(tidyverse) # tidy style coding
 library(brms) # Bayesian models
-library(loo) # for information criteria
 library(tidybayes) # Bayesian aesthetics
-library(MetBrewer) # colours
-library(kableExtra) # tables
-library(patchwork) # putting plots together
-library(DT) # for search- and saveable tables
 library(pander) # for simpler tables
 library(png) # to load images
 library(grid) # to plot images
-library(ggdag) # to draw dags
 ```
 
 
-Click **[here - hidden for blind review](XX)** to view the HTML report, which serves as online supplementary material for the associated manuscript ( _insert DOI_), in review at _Behavioural Ecology_. The report documents our empirical analysis (contains raw data and R-script) and provides all supplementary Figures and Tables.
+Click **[here](https://tomkeaney.github.io/Biased_pigeons/)** to view the HTML report, which serves as online supplementary material for the associated manuscript ( _insert DOI_), in review at _Animal Behaviour_. The report documents our empirical analysis (contains raw data and R-script) and provides all supplementary Figures and Tables.
 
 In an attempt to future proof the availability of our supplementary material, we also include the supplementary methods and Tables S1-S5 in this document. Additionally, our raw data is deposited in the Dryad database **[update when applicable](XXX)**.
 
 $~$
 
-# Priming statements
+# Priming emails
 
+**‘Hungry forager’ primer**:
 
-**‘Hungry forager’ primer**: "The video was recorded just after winter, which is typically the most difficult season of the year for pigeons in terms of feeding and survival. About 30% of pigeons do not survive winter; many that do survive experience a significant loss of body mass and must make the most of every feeding opportunity that arises in order to regain condition."
+Dear [student name]
 
-**‘Satiated forager’ primer**: "The video was recorded late in the afternoon near Jewell railway station, a favourite spot for commuters to feed the pigeons. Moreland Council estimates that locals dump 5-10kg of bread and seed here, creating a superabundant daily food source. By the end of the day, many of the birds are completely satiated and have little or no motivation to feed."
+As part of the Skills Studio tomorrow, we would like you to conduct a short observation. It will take about 5 minutes to complete.
+
+You will complete the observation during the class - this email is just to provide you with the links in advance. 
+
+If you can't come to the class, please complete the observation anyway (before the start of the class).
+
+_About the exercise_
+
+In this exercise, we will transport you to a location in Brunswick where a flock of pigeons is feeding.
+
+The video was recorded just after winter, which is typically the most difficult season of the year for pigeons in terms of feeding and survival. About 30% of pigeons do not survive winter; many that do survive experience a significant loss of body mass and must make the most of every feeding opportunity that arises in order to regain condition.
+
+_Your task_
+
+Access the 1-minute video of feeding pigeons at: [video link] 
+
+Before you start playing the video, click on the ‘cog’ (Source Chooser) icon and select the highest resolution (2628 kbps).
+
+Start playing the video in full screen mode
+
+1. Scan around the flock and try to estimate the percentage of pigeons that are foraging. There is a lot going on, so this is challenging, but try to come up with a figure that feels reasonably accurate to you. Write down this percentage.
+
+2. Pick out a pigeon in the flock to do a focal observation on. Restart the video and count how many times this bird pecks the ground during the 1-minute video. Write down your count.  Now, pick another bird and go back to the start of the video again. Also record the peck count for this second bird.
+
+Click on this link to enter your data: [survey link] 
+
+That's it - you're done!
+
+Thank you!
+[course coordinator names]
+
+$~$
+
+**‘Satiated forager’ primer**: 
+
+Dear [student name]
+
+As part of the Skills Studio tomorrow, we would like you to conduct a short observation. It will take about 5 minutes to complete.
+
+You will complete the observation during the class - this email is just to provide you with the links in advance. 
+
+If you can't come to the class, please complete the observation anyway (before the start of the class).
+
+_About the exercise_
+
+In this exercise, we will transport you to a location in Brunswick where a flock of pigeons is feeding.
+
+The video was recorded late in the afternoon near Jewell railway station, a favourite spot for commuters to feed the pigeons. Moreland Council estimates that locals dump 5-10kg of bread and seed here, creating a superabundant daily food source. By the end of the day, many of the birds are completely satiated and have little or no motivation to feed.
+
+_Your task_
+
+Access the 1-minute video of feeding pigeons at: [video link] 
+
+Before you start playing the video, click on the ‘cog’ (Source Chooser) icon and select the highest resolution (2628 kbps).
+
+Start playing the video in full screen mode
+
+1. Scan around the flock and try to estimate the percentage of pigeons that are foraging. There is a lot going on, so this is challenging, but try to come up with a figure that feels reasonably accurate to you. Write down this percentage.
+
+2. Pick out a pigeon in the flock to do a focal observation on. Restart the video and count how many times this bird pecks the ground during the 1-minute video. Write down your count.  Now, pick another bird and go back to the start of the video again. Also record the peck count for this second bird.
+
+Click on this link to enter your data: [survey link] 
+
+That's it - you're done!
+
+Thank you!
+[course coordinator names]
 
 $~$
 
@@ -96,7 +159,7 @@ foraging_model_treatment <- brm(Foraging_prop ~ 0 + Bias_treatment + Year,
 
 ```
 
-**Table S1**. Posterior estimates of the percentage of pigeons foraging, split by the primer that students were allocated.
+**Table A1**. Posterior estimates of the percentage of pigeons foraging, split by the primer that students were allocated.
 
 ```{r}
 new_data <- expand_grid(Bias_treatment = c("Hungry", "Satiated"),
@@ -132,7 +195,7 @@ foraging_model_expectation <- brm(Foraging_prop ~ 0 + Expectation + Year,
 
 $~$
 
-**Table S2**. Posterior estimates of the percentage of pigeons foraging, split by the actual expectation of the students.
+**Table A2**. Posterior estimates of the percentage of pigeons foraging, split by the actual expectation of the students.
 
 ```{r}
 
@@ -204,7 +267,7 @@ $~$
 
 $~$
 
-**Table S3**. The estimated peck rate of foraging pigeons, split by the primer students were allocated. Each student observed two pigeons.
+**Table A3**. The estimated peck rate of foraging pigeons, split by the primer students were allocated. Each student observed two pigeons.
 
 ```{r}
 new_data %>% 
@@ -247,7 +310,7 @@ $~$
 
 $~$
 
-**Table S4**. The estimated peck rate of foraging pigeons, split by the indicated expectation of the students. Each student observed two pigeons. 
+**Table A4**. The estimated peck rate of foraging pigeons, split by the indicated expectation of the students. Each student observed two pigeons. 
 
 ```{r}
 
@@ -277,7 +340,7 @@ $~$
 
 $~$
 
-**Table S5**. The degree to which each group of students overestimated feeding rate (number of ground pecks per minute)
+**Table A5**. The degree to which each group of students overestimated feeding rate (number of ground pecks per minute)
 
 ```{r}
 baseline_peck_predictions %>% select(Baseline_estimate) %>%  bind_cols(
