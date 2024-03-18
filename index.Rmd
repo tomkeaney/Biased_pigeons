@@ -363,7 +363,7 @@ $~$
 
 ```{r}
 
-baseline_data <- read_csv("data/baseline_peck_data.csv") %>% 
+baseline_data <- read.csv("data/baseline_peck_data.csv", sep = ";") %>% 
   select(1:5) %>%  # remove the comments column
   pivot_longer(cols = 4:5, names_to = "Observation", values_to = "Peck_rate") %>% 
   mutate(ID = as.factor(ID),
